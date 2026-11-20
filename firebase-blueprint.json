@@ -2,362 +2,263 @@
   "entities": {
     "UserProfile": {
       "title": "UserProfile",
-      "description": "Private student profile, monthly allowance, and campus settings for FinTrack Campus.",
+      "description": "Student profile, onboarding preferences, theme, and notification settings.",
       "type": "object",
       "properties": {
-        "uid": {
-          "type": "string",
-          "description": "Firebase Auth UID of the student.",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "displayName": {
-          "type": "string",
-          "description": "Student display name from Google Sign-In or profile.",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "email": {
-          "type": "string",
-          "format": "email",
-          "description": "Verified Google account email address.",
-          "maxLength": 160
-        },
-        "photoURL": {
-          "type": "string",
-          "description": "Optional profile avatar URL.",
-          "maxLength": 500
-        },
-        "campusName": {
-          "type": "string",
-          "description": "College or university name (e.g., DBS Global University, Dehradun).",
-          "minLength": 1,
-          "maxLength": 100
-        },
-        "monthlyAllowance": {
-          "type": "number",
-          "description": "Fixed monthly allowance or spending budget in INR."
-        },
-        "planTier": {
-          "type": "string",
-          "enum": ["free", "campus_plus_interest"],
-          "description": "Student plan status for MVP validation."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of account creation."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server timestamp of last profile update."
-        }
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "email": { "type": "string", "format": "email", "maxLength": 160 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "campusName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "ageGroup": { "type": "string", "enum": ["18-20", "21-22", "23-25", "25+"] },
+        "currency": { "type": "string", "enum": ["INR", "USD", "EUR"] },
+        "monthlyAllowance": { "type": "number" },
+        "monthlyBudget": { "type": "number" },
+        "savingsTarget": { "type": "number" },
+        "onboardingCompleted": { "type": "boolean" },
+        "planTier": { "type": "string", "enum": ["free", "premium_monthly", "premium_annual"] },
+        "theme": { "type": "string", "enum": ["light", "dark"] },
+        "readArticleIds": { "type": "array" },
+        "notificationPrefs": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "uid",
         "displayName",
         "email",
         "campusName",
+        "ageGroup",
+        "currency",
         "monthlyAllowance",
+        "monthlyBudget",
+        "savingsTarget",
+        "onboardingCompleted",
         "planTier",
+        "theme",
+        "readArticleIds",
+        "notificationPrefs",
         "createdAt",
         "updatedAt"
       ]
     },
-    "Expense": {
-      "title": "Expense",
-      "description": "A daily student expense transaction logged in FinTrack Campus.",
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Expense, income, or wallet transfer record owned by the student.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner UID.",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "amount": {
-          "type": "number",
-          "description": "Expense amount in INR (> 0 and <= 1000000)."
-        },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["expense", "income", "transfer"] },
+        "amount": { "type": "number" },
+        "description": { "type": "string", "minLength": 1, "maxLength": 140 },
         "category": {
           "type": "string",
           "enum": [
-            "food",
-            "transport",
-            "campus",
-            "entertainment",
-            "subscriptions",
+            "food_dining",
+            "transportation",
             "shopping",
-            "hostel",
+            "entertainment",
+            "education",
+            "accommodation",
+            "groceries",
+            "subscriptions",
+            "personal_care",
+            "allowance_income",
+            "freelance_income",
+            "wallet_transfer",
             "other"
-          ],
-          "description": "Student spending category."
+          ]
         },
+        "date": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "monthKey": { "type": "string", "minLength": 7, "maxLength": 7, "pattern": "^[0-9]{4}-[0-9]{2}$" },
         "paymentMethod": {
           "type": "string",
-          "enum": ["upi", "cash", "card"],
-          "description": "Payment mode used."
+          "enum": ["upi", "cash", "debit_card", "credit_card", "bank_transfer", "other"]
         },
-        "note": {
-          "type": "string",
-          "description": "Short merchant or purchase description.",
-          "minLength": 1,
-          "maxLength": 140
-        },
-        "date": {
-          "type": "string",
-          "description": "Purchase date in YYYY-MM-DD format.",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-          "minLength": 10,
-          "maxLength": 10
-        },
-        "monthKey": {
-          "type": "string",
-          "description": "Month partition key in YYYY-MM format.",
-          "pattern": "^[0-9]{4}-[0-9]{2}$",
-          "minLength": 7,
-          "maxLength": 7
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp."
-        }
+        "walletId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "toWalletId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "notes": { "type": "string", "maxLength": 300 },
+        "tags": { "type": "array" },
+        "receiptName": { "type": "string", "maxLength": 140 },
+        "receiptDataUrl": { "type": "string", "maxLength": 200000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "userId",
+        "type",
         "amount",
+        "description",
         "category",
-        "paymentMethod",
-        "note",
         "date",
         "monthKey",
+        "paymentMethod",
+        "walletId",
+        "tags",
         "createdAt",
         "updatedAt"
       ]
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "Student wallet account (Cash, Bank, UPI, Savings, College, Personal).",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "type": { "type": "string", "enum": ["cash", "bank", "upi", "savings", "college", "personal"] },
+        "openingBalance": { "type": "number" },
+        "color": { "type": "string", "minLength": 1, "maxLength": 24 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "type", "openingBalance", "color", "createdAt", "updatedAt"]
     },
     "CategoryBudget": {
       "title": "CategoryBudget",
-      "description": "Monthly category spending cap configured by the student.",
+      "description": "Monthly category spending budget limit.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner UID.",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "monthKey": {
-          "type": "string",
-          "description": "Month key in YYYY-MM format.",
-          "pattern": "^[0-9]{4}-[0-9]{2}$",
-          "minLength": 7,
-          "maxLength": 7
-        },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "monthKey": { "type": "string", "minLength": 7, "maxLength": 7, "pattern": "^[0-9]{4}-[0-9]{2}$" },
         "category": {
           "type": "string",
           "enum": [
-            "food",
-            "transport",
-            "campus",
-            "entertainment",
-            "subscriptions",
+            "food_dining",
+            "transportation",
             "shopping",
-            "hostel",
+            "entertainment",
+            "education",
+            "accommodation",
+            "groceries",
+            "subscriptions",
+            "personal_care",
             "other"
-          ],
-          "description": "Budget category."
+          ]
         },
-        "limitAmount": {
-          "type": "number",
-          "description": "Monthly spending cap in INR (>= 0 and <= 1000000)."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp."
-        }
+        "limitAmount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "userId",
-        "monthKey",
-        "category",
-        "limitAmount",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["userId", "monthKey", "category", "limitAmount", "createdAt", "updatedAt"]
     },
     "SavingsGoal": {
       "title": "SavingsGoal",
-      "description": "Student savings target with progress tracking.",
+      "description": "Student savings target with deposit and withdrawal tracking.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner UID.",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "title": {
-          "type": "string",
-          "description": "Goal title (e.g., Weekend Rishikesh Trip).",
-          "minLength": 1,
-          "maxLength": 60
-        },
-        "targetAmount": {
-          "type": "number",
-          "description": "Target savings amount in INR."
-        },
-        "savedAmount": {
-          "type": "number",
-          "description": "Current saved amount in INR."
-        },
-        "targetDate": {
-          "type": "string",
-          "description": "Target date in YYYY-MM-DD format.",
-          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-          "minLength": 10,
-          "maxLength": 10
-        },
-        "category": {
-          "type": "string",
-          "enum": ["travel", "tech", "academics", "emergency", "lifestyle"],
-          "description": "Goal type."
-        },
-        "status": {
-          "type": "string",
-          "enum": ["active", "completed"],
-          "description": "Goal completion status."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp."
-        }
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "targetAmount": { "type": "number" },
+        "savedAmount": { "type": "number" },
+        "targetDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "category": { "type": "string", "enum": ["laptop", "smartphone", "emergency", "trip", "clothes", "personal"] },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
-      "required": [
-        "userId",
-        "title",
-        "targetAmount",
-        "savedAmount",
-        "targetDate",
-        "category",
-        "status",
-        "createdAt",
-        "updatedAt"
-      ]
+      "required": ["userId", "name", "targetAmount", "savedAmount", "targetDate", "category", "status", "createdAt", "updatedAt"]
     },
-    "HabitChallenge": {
-      "title": "HabitChallenge",
-      "description": "Student money-management challenge with daily check-in dates.",
+    "Challenge": {
+      "title": "Challenge",
+      "description": "Gamified financial discipline challenge with start/end dates and check-ins.",
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "Owner UID.",
-          "minLength": 1,
-          "maxLength": 128,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "templateId": {
-          "type": "string",
-          "description": "Identifier for the challenge template.",
-          "minLength": 1,
-          "maxLength": 40,
-          "pattern": "^[a-zA-Z0-9_\\-]+$"
-        },
-        "title": {
-          "type": "string",
-          "description": "Challenge name.",
-          "minLength": 1,
-          "maxLength": 80
-        },
-        "targetDays": {
-          "type": "number",
-          "description": "Number of check-in days required to complete."
-        },
-        "completedDays": {
-          "type": "array",
-          "description": "List of YYYY-MM-DD dates checked in (max 90)."
-        },
-        "status": {
-          "type": "string",
-          "enum": ["active", "completed"],
-          "description": "Challenge completion status."
-        },
-        "createdAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server creation timestamp."
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time",
-          "description": "Server update timestamp."
-        }
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "templateId": { "type": "string", "minLength": 1, "maxLength": 40, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "targetDays": { "type": "number" },
+        "startDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "endDate": { "type": "string", "minLength": 10, "maxLength": 10, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+        "completedDays": { "type": "array" },
+        "pointsReward": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": [
         "userId",
         "templateId",
         "title",
+        "description",
         "targetDays",
+        "startDate",
+        "endDate",
         "completedDays",
+        "pointsReward",
         "status",
         "createdAt",
         "updatedAt"
       ]
+    },
+    "AppNotification": {
+      "title": "AppNotification",
+      "description": "In-app alert for budget thresholds, inactivity, challenges, and goal milestones.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "message": { "type": "string", "minLength": 1, "maxLength": 240 },
+        "kind": {
+          "type": "string",
+          "enum": ["budget_warning", "budget_exceeded", "goal_milestone", "challenge_complete", "inactivity", "system"]
+        },
+        "dedupeKey": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "kind", "dedupeKey", "read", "createdAt", "updatedAt"]
+    },
+    "SubscriptionRecord": {
+      "title": "SubscriptionRecord",
+      "description": "Student subscription selection and plan interest record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "plan": { "type": "string", "enum": ["free", "premium_monthly", "premium_annual"] },
+        "priceInr": { "type": "number" },
+        "billingCycle": { "type": "string", "enum": ["none", "monthly", "annual"] },
+        "status": { "type": "string", "enum": ["active", "preview_interest"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "plan", "priceInr", "billingCycle", "status", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
     "/users/{userId}": {
-      "schema": {
-        "$ref": "#/entities/UserProfile"
-      },
-      "description": "Owner-only student profile and monthly allowance settings."
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only student profile, onboarding values, theme, and notification preferences."
     },
-    "/users/{userId}/expenses/{expenseId}": {
-      "schema": {
-        "$ref": "#/entities/Expense"
-      },
-      "description": "Daily expense records owned by the student."
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Expenses, income, and wallet transfers owned by the student."
+    },
+    "/users/{userId}/wallets/{walletId}": {
+      "schema": { "$ref": "#/entities/Wallet" },
+      "description": "Wallets owned by the student (Cash, UPI, Bank, Savings, College, Personal)."
     },
     "/users/{userId}/budgets/{budgetId}": {
-      "schema": {
-        "$ref": "#/entities/CategoryBudget"
-      },
-      "description": "Monthly category budget limits owned by the student."
+      "schema": { "$ref": "#/entities/CategoryBudget" },
+      "description": "Monthly category budget allocations owned by the student."
     },
-    "/users/{userId}/goals/{goalId}": {
-      "schema": {
-        "$ref": "#/entities/SavingsGoal"
-      },
-      "description": "Personal savings goals owned by the student."
+    "/users/{userId}/savingsGoals/{goalId}": {
+      "schema": { "$ref": "#/entities/SavingsGoal" },
+      "description": "Savings goals owned by the student."
     },
     "/users/{userId}/challenges/{challengeId}": {
-      "schema": {
-        "$ref": "#/entities/HabitChallenge"
-      },
-      "description": "Active and completed student financial habit challenges."
+      "schema": { "$ref": "#/entities/Challenge" },
+      "description": "Money challenges and daily check-ins owned by the student."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AppNotification" },
+      "description": "In-app budget, goal, and challenge notifications."
+    },
+    "/users/{userId}/subscriptions/{subscriptionId}": {
+      "schema": { "$ref": "#/entities/SubscriptionRecord" },
+      "description": "Subscription tier selection and preview records."
     }
   }
 }

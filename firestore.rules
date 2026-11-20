@@ -47,33 +47,67 @@ service cloud.firestore {
       return val is string && val.size() == 7 && val.matches('^[0-9]{4}-[0-9]{2}$');
     }
 
-    function isValidCategory(val) {
+    function isValidExpenseCategory(val) {
       return val is string && val in [
-        'food',
-        'transport',
-        'campus',
-        'entertainment',
-        'subscriptions',
+        'food_dining',
+        'transportation',
         'shopping',
-        'hostel',
+        'entertainment',
+        'education',
+        'accommodation',
+        'groceries',
+        'subscriptions',
+        'personal_care',
+        'other'
+      ];
+    }
+
+    function isValidTxCategory(val) {
+      return val is string && val in [
+        'food_dining',
+        'transportation',
+        'shopping',
+        'entertainment',
+        'education',
+        'accommodation',
+        'groceries',
+        'subscriptions',
+        'personal_care',
+        'allowance_income',
+        'freelance_income',
+        'wallet_transfer',
         'other'
       ];
     }
 
     function isValidPaymentMethod(val) {
-      return val is string && val in ['upi', 'cash', 'card'];
+      return val is string && val in ['upi', 'cash', 'debit_card', 'credit_card', 'bank_transfer', 'other'];
+    }
+
+    function isValidWalletType(val) {
+      return val is string && val in ['cash', 'bank', 'upi', 'savings', 'college', 'personal'];
     }
 
     function isValidGoalCategory(val) {
-      return val is string && val in ['travel', 'tech', 'academics', 'emergency', 'lifestyle'];
+      return val is string && val in ['laptop', 'smartphone', 'emergency', 'trip', 'clothes', 'personal'];
     }
 
     function isValidStatus(val) {
       return val is string && val in ['active', 'completed'];
     }
 
+    function isValidNotificationPrefs(prefs) {
+      return prefs is map
+        && prefs.keys().hasAll(['budgetAlerts', 'inactivityReminders', 'goalMilestones', 'challengeAlerts'])
+        && prefs.keys().hasOnly(['budgetAlerts', 'inactivityReminders', 'goalMilestones', 'challengeAlerts'])
+        && prefs.budgetAlerts is bool
+        && prefs.inactivityReminders is bool
+        && prefs.goalMilestones is bool
+        && prefs.challengeAlerts is bool;
+    }
+
     // =========================================================================
-    // Validation Blueprints (Anti-Update-Gap)
+    // Validation Blueprints
     // =========================================================================
 
     function isValidUserProfile(data, userId) {
@@ -81,40 +115,57 @@ service cloud.firestore {
         && data.uid == userId
         && data.uid == request.auth.uid
         && isValidId(data.uid)
-        && data.displayName is string
-        && data.displayName.size() >= 1
-        && data.displayName.size() <= 80
-        && data.email is string
-        && data.email.size() >= 3
-        && data.email.size() <= 160
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
         && (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 500))
-        && data.campusName is string
-        && data.campusName.size() >= 1
-        && data.campusName.size() <= 100
-        && data.monthlyAllowance is number
-        && data.monthlyAllowance >= 0
-        && data.monthlyAllowance <= 1000000
-        && data.planTier is string
-        && data.planTier in ['free', 'campus_plus_interest']
+        && data.campusName is string && data.campusName.size() >= 1 && data.campusName.size() <= 100
+        && data.ageGroup is string && data.ageGroup in ['18-20', '21-22', '23-25', '25+']
+        && data.currency is string && data.currency in ['INR', 'USD', 'EUR']
+        && data.monthlyAllowance is number && data.monthlyAllowance >= 0 && data.monthlyAllowance <= 10000000
+        && data.monthlyBudget is number && data.monthlyBudget >= 0 && data.monthlyBudget <= 10000000
+        && data.savingsTarget is number && data.savingsTarget >= 0 && data.savingsTarget <= 10000000
+        && data.onboardingCompleted is bool
+        && data.planTier is string && data.planTier in ['free', 'premium_monthly', 'premium_annual']
+        && data.theme is string && data.theme in ['light', 'dark']
+        && data.readArticleIds is list && data.readArticleIds.size() <= 30
+        && (data.readArticleIds.size() == 0 || (data.readArticleIds[0] is string && data.readArticleIds[0].size() <= 40))
+        && isValidNotificationPrefs(data.notificationPrefs)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
-    function isValidExpense(data, userId) {
+    function isValidTransaction(data, userId) {
       return data.userId is string
         && data.userId == userId
         && data.userId == request.auth.uid
         && isValidId(data.userId)
-        && data.amount is number
-        && data.amount > 0
-        && data.amount <= 1000000
-        && isValidCategory(data.category)
-        && isValidPaymentMethod(data.paymentMethod)
-        && data.note is string
-        && data.note.size() >= 1
-        && data.note.size() <= 140
+        && data.type is string && data.type in ['expense', 'income', 'transfer']
+        && data.amount is number && data.amount > 0 && data.amount <= 10000000
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 140
+        && isValidTxCategory(data.category)
         && isValidDateString(data.date)
         && isValidMonthKey(data.monthKey)
+        && isValidPaymentMethod(data.paymentMethod)
+        && isValidId(data.walletId)
+        && (!('toWalletId' in data) || isValidId(data.toWalletId))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 300))
+        && data.tags is list && data.tags.size() <= 8
+        && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 30))
+        && (!('receiptName' in data) || (data.receiptName is string && data.receiptName.size() <= 140))
+        && (!('receiptDataUrl' in data) || (data.receiptDataUrl is string && data.receiptDataUrl.size() <= 200000))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidWallet(data, userId) {
+      return data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && isValidWalletType(data.type)
+        && data.openingBalance is number && data.openingBalance >= -10000000 && data.openingBalance <= 10000000
+        && data.color is string && data.color.size() >= 1 && data.color.size() <= 24
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -125,28 +176,20 @@ service cloud.firestore {
         && data.userId == request.auth.uid
         && isValidId(data.userId)
         && isValidMonthKey(data.monthKey)
-        && isValidCategory(data.category)
-        && data.limitAmount is number
-        && data.limitAmount >= 0
-        && data.limitAmount <= 1000000
+        && isValidExpenseCategory(data.category)
+        && data.limitAmount is number && data.limitAmount >= 0 && data.limitAmount <= 10000000
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
 
-    function isValidGoal(data, userId) {
+    function isValidSavingsGoal(data, userId) {
       return data.userId is string
         && data.userId == userId
         && data.userId == request.auth.uid
         && isValidId(data.userId)
-        && data.title is string
-        && data.title.size() >= 1
-        && data.title.size() <= 60
-        && data.targetAmount is number
-        && data.targetAmount > 0
-        && data.targetAmount <= 10000000
-        && data.savedAmount is number
-        && data.savedAmount >= 0
-        && data.savedAmount <= 10000000
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 60
+        && data.targetAmount is number && data.targetAmount > 0 && data.targetAmount <= 10000000
+        && data.savedAmount is number && data.savedAmount >= 0 && data.savedAmount <= 10000000
         && isValidDateString(data.targetDate)
         && isValidGoalCategory(data.category)
         && isValidStatus(data.status)
@@ -159,20 +202,43 @@ service cloud.firestore {
         && data.userId == userId
         && data.userId == request.auth.uid
         && isValidId(data.userId)
-        && data.templateId is string
-        && data.templateId.size() >= 1
-        && data.templateId.size() <= 40
-        && data.templateId.matches('^[a-zA-Z0-9_\\-]+$')
-        && data.title is string
-        && data.title.size() >= 1
-        && data.title.size() <= 80
-        && data.targetDays is number
-        && data.targetDays >= 1
-        && data.targetDays <= 90
-        && data.completedDays is list
-        && data.completedDays.size() <= 90
+        && data.templateId is string && data.templateId.size() >= 1 && data.templateId.size() <= 40 && data.templateId.matches('^[a-zA-Z0-9_\\-]+$')
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 80
+        && data.description is string && data.description.size() >= 1 && data.description.size() <= 200
+        && data.targetDays is number && data.targetDays >= 1 && data.targetDays <= 90
+        && isValidDateString(data.startDate)
+        && isValidDateString(data.endDate)
+        && data.completedDays is list && data.completedDays.size() <= 90
         && (data.completedDays.size() == 0 || isValidDateString(data.completedDays[0]))
+        && data.pointsReward is number && data.pointsReward >= 0 && data.pointsReward <= 1000
         && isValidStatus(data.status)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidNotification(data, userId) {
+      return data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 240
+        && data.kind is string && data.kind in ['budget_warning', 'budget_exceeded', 'goal_milestone', 'challenge_complete', 'inactivity', 'system']
+        && data.dedupeKey is string && data.dedupeKey.size() >= 1 && data.dedupeKey.size() <= 80
+        && data.read is bool
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSubscription(data, userId) {
+      return data.userId is string
+        && data.userId == userId
+        && data.userId == request.auth.uid
+        && isValidId(data.userId)
+        && data.plan is string && data.plan in ['free', 'premium_monthly', 'premium_annual']
+        && data.priceInr is number && data.priceInr >= 0 && data.priceInr <= 10000
+        && data.billingCycle is string && data.billingCycle in ['none', 'monthly', 'annual']
+        && data.status is string && data.status in ['active', 'preview_interest']
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -182,15 +248,22 @@ service cloud.firestore {
     // =========================================================================
 
     match /users/{userId} {
-      // PII isolated: owner-only get, never listable
       allow get: if isSignedIn() && isValidId(userId) && isOwner(userId);
       allow list: if false;
 
       allow create: if isVerifiedUser()
         && isValidId(userId)
         && isOwner(userId)
-        && incoming().keys().hasAll(['uid', 'displayName', 'email', 'campusName', 'monthlyAllowance', 'planTier', 'createdAt', 'updatedAt'])
-        && incoming().keys().hasOnly(['uid', 'displayName', 'email', 'photoURL', 'campusName', 'monthlyAllowance', 'planTier', 'createdAt', 'updatedAt'])
+        && incoming().keys().hasAll([
+          'uid', 'displayName', 'email', 'campusName', 'ageGroup', 'currency',
+          'monthlyAllowance', 'monthlyBudget', 'savingsTarget', 'onboardingCompleted',
+          'planTier', 'theme', 'readArticleIds', 'notificationPrefs', 'createdAt', 'updatedAt'
+        ])
+        && incoming().keys().hasOnly([
+          'uid', 'displayName', 'email', 'photoURL', 'campusName', 'ageGroup', 'currency',
+          'monthlyAllowance', 'monthlyBudget', 'savingsTarget', 'onboardingCompleted',
+          'planTier', 'theme', 'readArticleIds', 'notificationPrefs', 'createdAt', 'updatedAt'
+        ])
         && isValidUserProfile(incoming(), userId)
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -204,42 +277,72 @@ service cloud.firestore {
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
         && (
-          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'campusName', 'monthlyAllowance', 'photoURL', 'updatedAt']) ||
-          incoming().diff(existing()).affectedKeys().hasOnly(['planTier', 'updatedAt'])
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'campusName', 'ageGroup', 'currency', 'monthlyAllowance', 'monthlyBudget', 'savingsTarget', 'photoURL', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['campusName', 'ageGroup', 'currency', 'monthlyAllowance', 'monthlyBudget', 'savingsTarget', 'onboardingCompleted', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['planTier', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['theme', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['readArticleIds', 'updatedAt']) ||
+          incoming().diff(existing()).affectedKeys().hasOnly(['notificationPrefs', 'updatedAt'])
         );
 
-      allow delete: if false;
+      allow delete: if isVerifiedUser() && isValidId(userId) && isOwner(userId);
 
-      match /expenses/{expenseId} {
-        allow get: if isSignedIn() && isValidId(userId) && isValidId(expenseId) && isOwner(userId);
+      match /transactions/{transactionId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(transactionId) && isOwner(userId);
         allow list: if isSignedIn() && isOwner(userId) && existing().userId == request.auth.uid;
 
         allow create: if isVerifiedUser()
           && isValidId(userId)
-          && isValidId(expenseId)
+          && isValidId(transactionId)
           && isOwner(userId)
-          && incoming().keys().hasAll(['userId', 'amount', 'category', 'paymentMethod', 'note', 'date', 'monthKey', 'createdAt', 'updatedAt'])
-          && incoming().keys().hasOnly(['userId', 'amount', 'category', 'paymentMethod', 'note', 'date', 'monthKey', 'createdAt', 'updatedAt'])
-          && isValidExpense(incoming(), userId)
+          && incoming().keys().hasAll(['userId', 'type', 'amount', 'description', 'category', 'date', 'monthKey', 'paymentMethod', 'walletId', 'tags', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'type', 'amount', 'description', 'category', 'date', 'monthKey', 'paymentMethod', 'walletId', 'toWalletId', 'notes', 'tags', 'receiptName', 'receiptDataUrl', 'createdAt', 'updatedAt'])
+          && isValidTransaction(incoming(), userId)
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time
           && parentUserExists(userId);
 
         allow update: if isVerifiedUser()
           && isValidId(userId)
-          && isValidId(expenseId)
+          && isValidId(transactionId)
           && isOwner(userId)
-          && isValidExpense(incoming(), userId)
+          && isValidTransaction(incoming(), userId)
           && incoming().userId == existing().userId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
-          && incoming().diff(existing()).affectedKeys().hasOnly(['amount', 'category', 'paymentMethod', 'note', 'date', 'monthKey', 'updatedAt'])
+          && incoming().diff(existing()).affectedKeys().hasOnly(['type', 'amount', 'description', 'category', 'date', 'monthKey', 'paymentMethod', 'walletId', 'toWalletId', 'notes', 'tags', 'receiptName', 'receiptDataUrl', 'updatedAt'])
           && parentUserExists(userId);
 
-        allow delete: if isVerifiedUser()
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(transactionId) && isOwner(userId);
+      }
+
+      match /wallets/{walletId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(walletId) && isOwner(userId);
+        allow list: if isSignedIn() && isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
           && isValidId(userId)
-          && isValidId(expenseId)
-          && isOwner(userId);
+          && isValidId(walletId)
+          && isOwner(userId)
+          && incoming().keys().hasAll(['userId', 'name', 'type', 'openingBalance', 'color', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'name', 'type', 'openingBalance', 'color', 'createdAt', 'updatedAt'])
+          && isValidWallet(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(walletId)
+          && isOwner(userId)
+          && isValidWallet(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'type', 'openingBalance', 'color', 'updatedAt'])
+          && parentUserExists(userId);
+
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(walletId) && isOwner(userId);
       }
 
       match /budgets/{budgetId} {
@@ -270,13 +373,10 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly(['limitAmount', 'updatedAt'])
           && parentUserExists(userId);
 
-        allow delete: if isVerifiedUser()
-          && isValidId(userId)
-          && isValidId(budgetId)
-          && isOwner(userId);
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(budgetId) && isOwner(userId);
       }
 
-      match /goals/{goalId} {
+      match /savingsGoals/{goalId} {
         allow get: if isSignedIn() && isValidId(userId) && isValidId(goalId) && isOwner(userId);
         allow list: if isSignedIn() && isOwner(userId) && existing().userId == request.auth.uid;
 
@@ -284,9 +384,9 @@ service cloud.firestore {
           && isValidId(userId)
           && isValidId(goalId)
           && isOwner(userId)
-          && incoming().keys().hasAll(['userId', 'title', 'targetAmount', 'savedAmount', 'targetDate', 'category', 'status', 'createdAt', 'updatedAt'])
-          && incoming().keys().hasOnly(['userId', 'title', 'targetAmount', 'savedAmount', 'targetDate', 'category', 'status', 'createdAt', 'updatedAt'])
-          && isValidGoal(incoming(), userId)
+          && incoming().keys().hasAll(['userId', 'name', 'targetAmount', 'savedAmount', 'targetDate', 'category', 'status', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'name', 'targetAmount', 'savedAmount', 'targetDate', 'category', 'status', 'createdAt', 'updatedAt'])
+          && isValidSavingsGoal(incoming(), userId)
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time
           && parentUserExists(userId);
@@ -295,21 +395,18 @@ service cloud.firestore {
           && isValidId(userId)
           && isValidId(goalId)
           && isOwner(userId)
-          && isValidGoal(incoming(), userId)
+          && isValidSavingsGoal(incoming(), userId)
           && existing().status != 'completed'
           && incoming().userId == existing().userId
           && incoming().createdAt == existing().createdAt
           && incoming().updatedAt == request.time
           && (
             incoming().diff(existing()).affectedKeys().hasOnly(['savedAmount', 'status', 'updatedAt']) ||
-            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'targetAmount', 'targetDate', 'category', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'targetAmount', 'targetDate', 'category', 'status', 'updatedAt'])
           )
           && parentUserExists(userId);
 
-        allow delete: if isVerifiedUser()
-          && isValidId(userId)
-          && isValidId(goalId)
-          && isOwner(userId);
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(goalId) && isOwner(userId);
       }
 
       match /challenges/{challengeId} {
@@ -320,8 +417,8 @@ service cloud.firestore {
           && isValidId(userId)
           && isValidId(challengeId)
           && isOwner(userId)
-          && incoming().keys().hasAll(['userId', 'templateId', 'title', 'targetDays', 'completedDays', 'status', 'createdAt', 'updatedAt'])
-          && incoming().keys().hasOnly(['userId', 'templateId', 'title', 'targetDays', 'completedDays', 'status', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasAll(['userId', 'templateId', 'title', 'description', 'targetDays', 'startDate', 'endDate', 'completedDays', 'pointsReward', 'status', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'templateId', 'title', 'description', 'targetDays', 'startDate', 'endDate', 'completedDays', 'pointsReward', 'status', 'createdAt', 'updatedAt'])
           && isValidChallenge(incoming(), userId)
           && incoming().createdAt == request.time
           && incoming().updatedAt == request.time
@@ -340,10 +437,65 @@ service cloud.firestore {
           && incoming().diff(existing()).affectedKeys().hasOnly(['completedDays', 'status', 'updatedAt'])
           && parentUserExists(userId);
 
-        allow delete: if isVerifiedUser()
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(challengeId) && isOwner(userId);
+      }
+
+      match /notifications/{notificationId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(notificationId) && isOwner(userId);
+        allow list: if isSignedIn() && isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
           && isValidId(userId)
-          && isValidId(challengeId)
-          && isOwner(userId);
+          && isValidId(notificationId)
+          && isOwner(userId)
+          && incoming().keys().hasAll(['userId', 'title', 'message', 'kind', 'dedupeKey', 'read', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'title', 'message', 'kind', 'dedupeKey', 'read', 'createdAt', 'updatedAt'])
+          && isValidNotification(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(notificationId)
+          && isOwner(userId)
+          && isValidNotification(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['read', 'updatedAt'])
+          && parentUserExists(userId);
+
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(notificationId) && isOwner(userId);
+      }
+
+      match /subscriptions/{subscriptionId} {
+        allow get: if isSignedIn() && isValidId(userId) && isValidId(subscriptionId) && isOwner(userId);
+        allow list: if isSignedIn() && isOwner(userId) && existing().userId == request.auth.uid;
+
+        allow create: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(subscriptionId)
+          && isOwner(userId)
+          && incoming().keys().hasAll(['userId', 'plan', 'priceInr', 'billingCycle', 'status', 'createdAt', 'updatedAt'])
+          && incoming().keys().hasOnly(['userId', 'plan', 'priceInr', 'billingCycle', 'status', 'createdAt', 'updatedAt'])
+          && isValidSubscription(incoming(), userId)
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && parentUserExists(userId);
+
+        allow update: if isVerifiedUser()
+          && isValidId(userId)
+          && isValidId(subscriptionId)
+          && isOwner(userId)
+          && isValidSubscription(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['plan', 'priceInr', 'billingCycle', 'status', 'updatedAt'])
+          && parentUserExists(userId);
+
+        allow delete: if isVerifiedUser() && isValidId(userId) && isValidId(subscriptionId) && isOwner(userId);
       }
     }
   }
