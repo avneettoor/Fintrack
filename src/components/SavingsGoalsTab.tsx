@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Check, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Check, PartyPopper, Pencil, Plus, Trash2 } from 'lucide-react';
 import {
   CurrencyCode,
   formatCurrency,
@@ -37,6 +37,7 @@ interface SavingsGoalsTabProps {
     deltaAmount: number
   ) => Promise<void>;
   onDeleteGoal: (goalId: string) => Promise<void>;
+  onCelebrateGoal?: (goal: SavingsGoal, savedAmount: number) => void;
 }
 
 export function SavingsGoalsTab({
@@ -46,6 +47,7 @@ export function SavingsGoalsTab({
   onUpdateGoal,
   onAdjustGoal,
   onDeleteGoal,
+  onCelebrateGoal,
 }: SavingsGoalsTabProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<SavingsGoal | null>(null);
@@ -314,11 +316,21 @@ export function SavingsGoalsTab({
                 </div>
 
                 {completed ? (
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
                     <span className="inline-flex items-center gap-1.5 font-semibold text-[#16A36A]">
                       <Check className="w-4 h-4" />
                       Goal Completed ({formatCurrency(g.targetAmount, currency)})
                     </span>
+                    {onCelebrateGoal && (
+                      <button
+                        type="button"
+                        onClick={() => onCelebrateGoal(g, g.savedAmount)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-[#18A879] font-semibold hover:bg-emerald-100 transition-colors"
+                      >
+                        <PartyPopper className="w-3.5 h-3.5" />
+                        <span>Celebrate</span>
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
@@ -341,6 +353,10 @@ export function SavingsGoalsTab({
                           setBusyId(g.id);
                           try {
                             await onAdjustGoal(g.id, g.savedAmount, g.targetAmount, customVal);
+                            const nextSaved = g.savedAmount + customVal;
+                            if (nextSaved >= g.targetAmount && onCelebrateGoal) {
+                              onCelebrateGoal(g, nextSaved);
+                            }
                           } finally {
                             setBusyId(null);
                           }

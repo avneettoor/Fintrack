@@ -1,5 +1,14 @@
 import { useMemo, useState } from 'react';
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Pencil, Plus, Sparkles } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowLeftRight,
+  ArrowUpRight,
+  PartyPopper,
+  Pencil,
+  Plus,
+  Sparkles,
+} from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -16,6 +25,7 @@ import {
 } from 'recharts';
 import {
   CategoryBudget,
+  computeDailySpendAllowance,
   computeWalletBalances,
   CurrencyCode,
   EXPENSE_CATEGORIES,
@@ -23,8 +33,8 @@ import {
   formatCurrency,
   formatMonthLabel,
   getCategoryInfo,
+  getCurrentMonthKey,
   getDaysInMonth,
-  getRemainingDaysInMonth,
   PAYMENT_METHODS,
   SavingsGoal,
   shiftMonthKey,
@@ -36,6 +46,7 @@ interface OverviewTabProps {
   monthKey: string;
   currency: CurrencyCode;
   monthlyBudget: number;
+  savingsTarget: number;
   transactions: Transaction[];
   wallets: Wallet[];
   budgets: CategoryBudget[];
@@ -47,6 +58,7 @@ interface OverviewTabProps {
   onEditTx: (tx: Transaction) => void;
   onOpenCategoryTransactions: (cat: ExpenseCategory) => void;
   onViewAllTransactions: () => void;
+  onCelebrateMonthlyGoal: () => void;
 }
 
 type ChartRange = 'daily' | 'monthly' | 'comparison';
@@ -55,6 +67,7 @@ export function OverviewTab({
   monthKey,
   currency,
   monthlyBudget,
+  savingsTarget,
   transactions,
   wallets,
   budgets,
@@ -66,6 +79,7 @@ export function OverviewTab({
   onEditTx,
   onOpenCategoryTransactions,
   onViewAllTransactions,
+  onCelebrateMonthlyGoal,
 }: OverviewTabProps) {
   const [chartRange, setChartRange] = useState<ChartRange>('daily');
 
@@ -110,15 +124,22 @@ export function OverviewTab({
   const monthlyNetSaved = Math.max(0, monthlyIncome - monthlyExpenses);
   const displayTotalSavings = totalGoalSavings > 0 ? totalGoalSavings : monthlyNetSaved;
 
-  // Monthly budget & Daily Safe-to-Spend
+  // Monthly budget & Daily Safe-to-Spend (after necessary bills/expenses)
   const monthCategoryBudgets = budgets.filter((b) => b.monthKey === monthKey);
   const allocatedSum = monthCategoryBudgets.reduce((s, b) => s + b.limitAmount, 0);
   const effectiveMonthlyBudget = monthlyBudget > 0 ? monthlyBudget : allocatedSum;
   const remainingBudget = effectiveMonthlyBudget - monthlyExpenses;
   const budgetPct =
     effectiveMonthlyBudget > 0 ? Math.round((monthlyExpenses / effectiveMonthlyBudget) * 100) : 0;
-  const remainingDays = getRemainingDaysInMonth(monthKey);
-  const dailySafeToSpend = remainingBudget > 0 ? Math.floor(remainingBudget / remainingDays) : 0;
+  const dailyAllowance = useMemo(
+    () => computeDailySpendAllowance(transactions, monthKey, effectiveMonthlyBudget),
+    [transactions, monthKey, effectiveMonthlyBudget]
+  );
+  const monthlySavingsAchieved =
+    savingsTarget > 0 && monthlyIncome > 0 && monthlyNetSaved >= savingsTarget;
+  const monthlySavingsPct =
+    savingsTarget > 0 ? Math.round((monthlyNetSaved / savingsTarget) * 100) : 0;
+  const isViewingCurrentMonth = monthKey === getCurrentMonthKey();
 
   // Spending by category for Doughnut chart
   const categoryBreakdown = useMemo(() => {
@@ -421,23 +442,206 @@ export function OverviewTab({
           </div>
         </div>
 
-        <div className="lg:col-span-5 bg-[#172B4D] text-white rounded-2xl p-6 shadow-xs flex flex-col justify-between">
+        <div
+          className={`rounded-2xl p-6 shadow-xs flex flex-col justify-between lg:col-span-5 ${
+            dailyAllowance.dailyThresholdTier === 'exceeded_100'
+              ? 'bg-[#2A1820] text-white border border-[#E56B6F]/60'
+              : dailyAllowance.dailyThresholdTier === 'warning_90'
+                ? 'bg-[#1D273B] text-white border border-[#F4B544]/70'
+                : 'bg-[#172B4D] text-white'
+          }`}
+        >
           <div>
-            <p className="text-xs font-semibold text-[#18A879]">Daily Safe-to-Spend</p>
-            <p className="mt-2 font-display text-2xl font-bold leading-snug">
-              You can safely spend{' '}
-              <span className="font-mono-nums text-[#18A879]">
-                {formatCurrency(dailySafeToSpend, currency)}
-              </span>{' '}
-              today.
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p
+                className={`text-xs font-semibold ${
+                  dailyAllowance.dailyThresholdTier === 'exceeded_100'
+                    ? 'text-[#E56B6F]'
+                    : dailyAllowance.dailyThresholdTier === 'warning_90'
+                      ? 'text-[#F4B544]'
+                      : 'text-[#18A879]'
+                }`}
+              >
+                {dailyAllowance.dailyThresholdTier === 'exceeded_100'
+                  ? 'Daily Limit Exceeded Alert'
+                  : dailyAllowance.dailyThresholdTier === 'warning_90'
+                    ? `Approaching Daily Limit (${dailyAllowance.dailyCapacityPct}%)`
+                    : 'Daily Safe-to-Spend Limit'}
+              </p>
+              <span className="text-[11px] font-mono-nums text-slate-300">
+                Essentials paid: {formatCurrency(dailyAllowance.essentialPaidThisMonth, currency)}
+              </span>
+            </div>
+
+            {dailyAllowance.dailyThresholdTier === 'exceeded_100' ? (
+              <div className="mt-2.5 space-y-2">
+                <p className="font-display text-xl font-bold leading-snug flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-[#E56B6F] shrink-0 mt-0.5" />
+                  <span>
+                    You crossed today&apos;s{' '}
+                    <span className="font-mono-nums text-[#F4B544]">
+                      {formatCurrency(dailyAllowance.dailyLimit, currency)}
+                    </span>{' '}
+                    limit by{' '}
+                    <span className="font-mono-nums text-[#E56B6F]">
+                      {formatCurrency(Math.abs(dailyAllowance.remainingToday), currency)}
+                    </span>
+                    .
+                  </span>
+                </p>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  After necessary &amp; prior expenses, you spent{' '}
+                  <span className="font-mono-nums font-semibold text-white">
+                    {formatCurrency(dailyAllowance.spentToday, currency)}
+                  </span>{' '}
+                  today. Slow down discretionary spends to stay on track for month-end.
+                </p>
+              </div>
+            ) : dailyAllowance.dailyThresholdTier === 'warning_90' ? (
+              <div className="mt-2.5 space-y-2">
+                <p className="font-display text-xl font-bold leading-snug flex items-start gap-2">
+                  <AlertTriangle className="w-5 h-5 text-[#F4B544] shrink-0 mt-0.5" />
+                  <span>
+                    Only{' '}
+                    <span className="font-mono-nums text-[#F4B544]">
+                      {formatCurrency(Math.max(0, dailyAllowance.remainingToday), currency)}
+                    </span>{' '}
+                    left in today&apos;s{' '}
+                    <span className="font-mono-nums text-white">
+                      {formatCurrency(dailyAllowance.dailyLimit, currency)}
+                    </span>{' '}
+                    budget.
+                  </span>
+                </p>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  You have spent{' '}
+                  <span className="font-mono-nums font-semibold text-white">
+                    {formatCurrency(dailyAllowance.spentToday, currency)}
+                  </span>{' '}
+                  today ({dailyAllowance.dailyCapacityPct}% of daily safe capacity). Hold off on non-essential UPI taps.
+                </p>
+              </div>
+            ) : (
+              <div className="mt-2.5 space-y-2">
+                <p className="font-display text-2xl font-bold leading-snug">
+                  You can safely spend{' '}
+                  <span className="font-mono-nums text-[#18A879]">
+                    {formatCurrency(dailyAllowance.dailyLimit, currency)}
+                  </span>{' '}
+                  {isViewingCurrentMonth ? 'today' : 'per day'}.
+                </p>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  After paying essentials, you are left with{' '}
+                  <span className="font-mono-nums font-semibold text-white">
+                    {formatCurrency(Math.max(0, dailyAllowance.remainingForMonth), currency)}
+                  </span>
+                  {isViewingCurrentMonth && dailyAllowance.spentToday > 0 && (
+                    <>
+                      {' '}
+                      · Spent today:{' '}
+                      <span className="font-mono-nums font-semibold text-white">
+                        {formatCurrency(dailyAllowance.spentToday, currency)}
+                      </span>{' '}
+                      (
+                      <span className="font-mono-nums text-[#18A879]">
+                        {formatCurrency(Math.max(0, dailyAllowance.remainingToday), currency)} left
+                        today
+                      </span>
+                      )
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {isViewingCurrentMonth && dailyAllowance.dailyLimit > 0 && (
+              <div className="mt-3">
+                <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-200"
+                    style={{
+                      width: `${Math.min(100, dailyAllowance.dailyCapacityPct)}%`,
+                      backgroundColor:
+                        dailyAllowance.dailyThresholdTier === 'exceeded_100'
+                          ? '#E56B6F'
+                          : dailyAllowance.dailyThresholdTier === 'warning_90'
+                            ? '#F4B544'
+                            : '#18A879',
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
+
           <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between text-xs text-slate-300 font-mono-nums">
-            <span>Remaining: {formatCurrency(remainingBudget, currency)}</span>
-            <span>{remainingDays} days left in month</span>
+            <span>Month left: {formatCurrency(remainingBudget, currency)}</span>
+            <span>{dailyAllowance.remainingDays} days remaining</span>
           </div>
         </div>
       </div>
+
+      {/* Monthly Savings Target Achievement & Celebration Banner */}
+      {savingsTarget > 0 && (
+        <section
+          className={`rounded-2xl p-5 border shadow-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${
+            monthlySavingsAchieved
+              ? 'bg-emerald-50/70 dark:bg-emerald-950/25 border-[#18A879]/40'
+              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+          }`}
+        >
+          <div className="flex items-start gap-3.5 min-w-0">
+            <div
+              className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                monthlySavingsAchieved
+                  ? 'bg-[#18A879] text-white'
+                  : 'bg-[#EDF2FD] dark:bg-slate-800 text-[#4778E8]'
+              }`}
+            >
+              <PartyPopper className="w-5 h-5" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-sm font-bold text-[#172B4D] dark:text-white">
+                  {monthlySavingsAchieved
+                    ? `Monthly Savings Goal Achieved for ${formatMonthLabel(monthKey)}!`
+                    : `Monthly Savings Target (${formatMonthLabel(monthKey)})`}
+                </h2>
+                <span className="text-xs font-mono-nums font-bold text-[#18A879]">
+                  {monthlySavingsPct}%
+                </span>
+              </div>
+              <p className="text-xs text-[#8490A5] dark:text-slate-400 mt-0.5 font-mono-nums">
+                Net saved: {formatCurrency(monthlyNetSaved, currency)} / Target:{' '}
+                {formatCurrency(savingsTarget, currency)}
+                {monthlySavingsAchieved
+                  ? ` (+${formatCurrency(monthlyNetSaved - savingsTarget, currency)} bonus saved!)`
+                  : ` (${formatCurrency(Math.max(0, savingsTarget - monthlyNetSaved), currency)} more to reach target)`}
+              </p>
+              <div className="mt-2.5 h-2 w-full max-w-md bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(100, monthlySavingsPct)}%`,
+                    backgroundColor: monthlySavingsAchieved ? '#16A36A' : '#4778E8',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {monthlySavingsAchieved && (
+            <button
+              type="button"
+              onClick={onCelebrateMonthlyGoal}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#18A879] hover:bg-[#149369] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+            >
+              <PartyPopper className="w-4 h-4" />
+              <span>Celebrate Goal</span>
+            </button>
+          )}
+        </section>
+      )}
 
       {/* B & C: Income vs Expenses Chart + Spending by Category Doughnut */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

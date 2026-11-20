@@ -423,6 +423,36 @@ export function TransactionModal({
             </div>
           </div>
 
+          {type === 'expense' && (
+            <label className="flex items-center gap-2.5 p-3 rounded-xl bg-[#F7F9FC] dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={tagsText
+                  .split(',')
+                  .map((t) => t.trim().toLowerCase())
+                  .includes('essential')}
+                onChange={(e) => {
+                  const current = tagsText
+                    .split(',')
+                    .map((t) => t.trim())
+                    .filter(Boolean);
+                  const without = current.filter((t) => t.toLowerCase() !== 'essential');
+                  const next = e.target.checked ? ['essential', ...without] : without;
+                  setTagsText(next.join(', '));
+                }}
+                className="w-4 h-4 accent-[#18A879]"
+              />
+              <div className="text-xs">
+                <span className="font-semibold text-[#172B4D] dark:text-white">
+                  Basic necessary payment
+                </span>
+                <span className="text-[#8490A5] ml-1.5">
+                  (Hostel rent, mess, fees, bills — deducted first before daily spend limit)
+                </span>
+              </div>
+            </label>
+          )}
+
           {/* 9. Receipt Attachment */}
           <div className="flex items-center justify-between gap-3 p-3 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-[#F7F9FC] dark:bg-slate-800/40">
             <label className="inline-flex items-center gap-2 text-xs font-medium text-[#172B4D] dark:text-slate-200 cursor-pointer">

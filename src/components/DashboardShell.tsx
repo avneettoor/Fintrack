@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ArrowLeftRight,
   BarChart3,
   Bell,
@@ -61,11 +62,13 @@ import {
   AppNotification,
   CategoryBudget,
   Challenge,
+  computeDailySpendAllowance,
   EXPENSE_CATEGORIES,
   ExpenseCategory,
   formatCurrency,
   formatMonthLabel,
   getCurrentMonthKey,
+  getDaysInMonth,
   getTodayISO,
   NotificationPrefs,
   PlanTier,
@@ -81,6 +84,7 @@ import { AnalyticsTab } from './AnalyticsTab';
 import { AuthModal } from './AuthModal';
 import { BrandLogo } from './BrandLogo';
 import { BudgetsTab } from './BudgetsTab';
+import { CelebrationModal, CelebrationPayload } from './CelebrationModal';
 import { ChallengesTab } from './ChallengesTab';
 import { HelpSupportTab } from './HelpSupportTab';
 import { LearnFinanceTab } from './LearnFinanceTab';
@@ -88,9 +92,11 @@ import { OverviewTab } from './OverviewTab';
 import { SavingsGoalsTab } from './SavingsGoalsTab';
 import { SettingsTab } from './SettingsTab';
 import { SubscriptionTab } from './SubscriptionTab';
+import { ToastNotifications } from './ToastNotifications';
 import { TransactionModal } from './TransactionModal';
 import { TransactionsTab } from './TransactionsTab';
 import { WalletsTab } from './WalletsTab';
+import { useDailyBudgetMonitor } from '../hooks/useDailyBudgetMonitor';
 
 type NavTab =
   | 'overview'
@@ -174,6 +180,12 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
   const [demoData, setDemoData] = useState<DemoDataset>(() =>
     createInitialDemoDataset(getCurrentMonthKey())
   );
+
+  // Daily limit alert banner + Party Celebration Modal state
+  const [dismissedDailySpendAmount, setDismissedDailySpendAmount] = useState<number | null>(null);
+  const [celebration, setCelebration] = useState<CelebrationPayload | null>(null);
+  const prevMonthlySavingsAchievedRef = useRef<boolean | null>(null);
+  const autoCelebratedMonthsRef = useRef<Set<string>>(new Set());
 
   const dispatchedNotifKeys = useRef<Set<string>>(new Set());
   const notifContainerRef = useRef<HTMLDivElement>(null);
@@ -290,29 +302,54 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
     [notifications]
   );
 
-  // Close notification popover on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (notifContainerRef.current && !notifContainerRef.current.contains(e.target as Node)) {
-        setNotifOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
+  const monthBudgetsTotal = useMemo(
+    () => budgets.filter((b) => b.monthKey === monthKey).reduce((s, b) => s + b.limitAmount, 0),
+    [budgets, monthKey]
+  );
+  const effectiveMonthlyBudget =
+    (activeProfile?.monthlyBudget || 0) > 0 ? activeProfile!.monthlyBudget : monthBudgetsTotal;
 
-  // Automated smart notification alerts (deduplicated, works in both Live & Demo mode)
-  useEffect(() => {
-    if (!activeProfile || loadingData) return;
-    if (!isDemo && !user) return;
+  const dailyAllowance = useMemo(
+    () => computeDailySpendAllowance(transactions, monthKey, effectiveMonthlyBudget),
+    [transactions, monthKey, effectiveMonthlyBudget]
+  );
 
-    const existingKeys = new Set(notifications.map((n) => n.dedupeKey));
-    const dispatchOnce = (
+  const monthlyIncomeTotal = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.monthKey === monthKey && t.type === 'income')
+        .reduce((s, t) => s + t.amount, 0),
+    [transactions, monthKey]
+  );
+  const monthlyExpenseTotal = useMemo(
+    () =>
+      transactions
+        .filter((t) => t.monthKey === monthKey && t.type === 'expense')
+        .reduce((s, t) => s + t.amount, 0),
+    [transactions, monthKey]
+  );
+  const monthlyNetSaved = Math.max(0, monthlyIncomeTotal - monthlyExpenseTotal);
+  const monthlySavingsTarget = activeProfile?.savingsTarget || 0;
+  const monthlySavingsAchieved =
+    monthlySavingsTarget > 0 && monthlyIncomeTotal > 0 && monthlyNetSaved >= monthlySavingsTarget;
+
+  const existingNotifKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    existingNotifKeysRef.current = new Set(notifications.map((n) => n.dedupeKey));
+  }, [notifications]);
+
+  const dispatchNotificationOnce = useCallback(
+    (
       dedupeKey: string,
       payload: { title: string; message: string; kind: AppNotification['kind'] }
     ) => {
       const safeKey = dedupeKey.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 80);
-      if (existingKeys.has(safeKey) || dispatchedNotifKeys.current.has(safeKey)) return;
+      if (
+        existingNotifKeysRef.current.has(safeKey) ||
+        dispatchedNotifKeys.current.has(safeKey)
+      ) {
+        return;
+      }
       dispatchedNotifKeys.current.add(safeKey);
 
       if (isDemo) {
@@ -340,7 +377,45 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
       } else if (user) {
         void createNotificationIfNew(user.uid, { dedupeKey: safeKey, ...payload });
       }
+    },
+    [isDemo, user]
+  );
+
+  const handleReviewDailySpends = useCallback(() => {
+    setExternalCategoryFilter('all');
+    setExternalWalletFilter('all');
+    setExternalSearchQuery('');
+    setTxFilterNonce((n) => n + 1);
+    setActiveTab('transactions');
+  }, []);
+
+  const { toasts, dismissToast } = useDailyBudgetMonitor({
+    activeProfile,
+    transactions,
+    budgets,
+    loadingData,
+    isDemo,
+    onNotifyPersistent: dispatchNotificationOnce,
+    onReviewSpends: handleReviewDailySpends,
+  });
+
+  // Close notification popover on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (notifContainerRef.current && !notifContainerRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
     };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Automated smart notification alerts (deduplicated, works in both Live & Demo mode)
+  useEffect(() => {
+    if (!activeProfile || loadingData) return;
+    if (!isDemo && !user) return;
+
+    const dispatchOnce = dispatchNotificationOnce;
 
     const currency = activeProfile.currency || 'INR';
     const currentMonthTxs = transactions.filter((t) => t.monthKey === monthKey);
@@ -429,7 +504,38 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
       }
     }
 
-    // 4. 3-day logging inactivity reminder
+    // 4. Monthly Savings Goal Achieved notification + auto celebration party
+    if (monthlySavingsAchieved) {
+      dispatchOnce(`monthly_savings_goal_${monthKey}`, {
+        title: 'Monthly Savings Goal Achieved!',
+        message: `You saved ${formatCurrency(monthlyNetSaved, currency)} against your ${formatCurrency(monthlySavingsTarget, currency)} target for ${formatMonthLabel(monthKey)}.`,
+        kind: 'goal_milestone',
+      });
+
+      const todayDay = new Date().getDate();
+      const totalDaysInSelectedMonth = getDaysInMonth(monthKey);
+      const isEndOfMonth =
+        monthKey < getCurrentMonthKey() ||
+        (monthKey === getCurrentMonthKey() && todayDay >= totalDaysInSelectedMonth - 2);
+      const transitionedToAchieved = prevMonthlySavingsAchievedRef.current === false;
+
+      if (
+        (transitionedToAchieved || isEndOfMonth) &&
+        !autoCelebratedMonthsRef.current.has(monthKey)
+      ) {
+        autoCelebratedMonthsRef.current.add(monthKey);
+        setCelebration({
+          title: 'Monthly Savings Goal Achieved!',
+          subtitle: `Party time! You stayed disciplined and hit your ${formatMonthLabel(monthKey)} savings target.`,
+          savedAmount: monthlyNetSaved,
+          targetAmount: monthlySavingsTarget,
+          periodLabel: formatMonthLabel(monthKey),
+        });
+      }
+    }
+    prevMonthlySavingsAchievedRef.current = monthlySavingsAchieved;
+
+    // 6. 3-day logging inactivity reminder
     if (activeProfile.notificationPrefs?.inactivityReminders && transactions.length > 0) {
       const latestDate = transactions.reduce(
         (max, t) => (t.date > max ? t.date : max),
@@ -458,6 +564,10 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
     challenges,
     monthKey,
     notifications,
+    dispatchNotificationOnce,
+    monthlySavingsAchieved,
+    monthlyNetSaved,
+    monthlySavingsTarget,
   ]);
 
   if (!activeProfile) return null;
@@ -1335,11 +1445,69 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
             </div>
           )}
 
+          {/* Daily Spending Limit Exceeded Live Alert Banner */}
+          {dailyAllowance.isDailyLimitExceeded &&
+            dismissedDailySpendAmount !== dailyAllowance.spentToday && (
+              <div
+                role="alert"
+                className="bg-red-50 dark:bg-red-950/40 border border-[#E56B6F]/50 rounded-2xl px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-xs"
+              >
+                <div className="flex items-start gap-3 min-w-0">
+                  <AlertTriangle className="w-5 h-5 text-[#E56B6F] shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#E56B6F]">
+                      Daily Spending Limit Exceeded Today
+                    </p>
+                    <p className="text-xs text-[#253047] dark:text-slate-200 mt-0.5 leading-relaxed">
+                      After paying your basic necessary &amp; prior expenses (
+                      <span className="font-mono-nums font-semibold">
+                        {formatCurrency(dailyAllowance.essentialPaidThisMonth, currency)}
+                      </span>{' '}
+                      essentials paid), your daily safe limit was{' '}
+                      <span className="font-mono-nums font-semibold">
+                        {formatCurrency(dailyAllowance.dailyLimit, currency)}
+                      </span>
+                      . You have spent{' '}
+                      <span className="font-mono-nums font-bold text-[#E56B6F]">
+                        {formatCurrency(dailyAllowance.spentToday, currency)}
+                      </span>{' '}
+                      today ({formatCurrency(Math.abs(dailyAllowance.remainingToday), currency)}{' '}
+                      over limit).
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExternalCategoryFilter('all');
+                      setExternalWalletFilter('all');
+                      setExternalSearchQuery('');
+                      setTxFilterNonce((n) => n + 1);
+                      setActiveTab('transactions');
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-[#E56B6F] hover:bg-red-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+                  >
+                    Review Spends
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedDailySpendAmount(dailyAllowance.spentToday)}
+                    className="p-1.5 text-[#8490A5] hover:text-[#172B4D] dark:hover:text-white rounded-lg"
+                    aria-label="Dismiss daily limit alert"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
           {activeTab === 'overview' && (
             <OverviewTab
               monthKey={monthKey}
               currency={currency}
               monthlyBudget={activeProfile.monthlyBudget}
+              savingsTarget={activeProfile.savingsTarget}
               transactions={transactions}
               wallets={wallets}
               budgets={budgets}
@@ -1360,6 +1528,15 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
                 setTxFilterNonce((n) => n + 1);
                 setActiveTab('transactions');
               }}
+              onCelebrateMonthlyGoal={() =>
+                setCelebration({
+                  title: 'Monthly Savings Goal Achieved!',
+                  subtitle: `Congratulations! You saved ${formatCurrency(monthlyNetSaved, currency)} against your ${formatMonthLabel(monthKey)} goal of ${formatCurrency(monthlySavingsTarget, currency)}.`,
+                  savedAmount: monthlyNetSaved,
+                  targetAmount: monthlySavingsTarget,
+                  periodLabel: formatMonthLabel(monthKey),
+                })
+              }
             />
           )}
 
@@ -1434,6 +1611,15 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
               onUpdateGoal={handleUpdateGoal}
               onAdjustGoal={handleAdjustGoal}
               onDeleteGoal={handleDeleteGoal}
+              onCelebrateGoal={(goal, savedAmount) =>
+                setCelebration({
+                  title: `${goal.name} Achieved!`,
+                  subtitle: `You hit 100% of your "${goal.name}" target. Hard work and smart campus saving paid off!`,
+                  savedAmount,
+                  targetAmount: goal.targetAmount,
+                  periodLabel: 'Savings Goal',
+                })
+              }
             />
           )}
 
@@ -1574,6 +1760,17 @@ export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
           onClose={() => setDemoAuthOpen(false)}
         />
       )}
+
+      {/* Party / Confetti Celebration Modal */}
+      <CelebrationModal
+        isOpen={Boolean(celebration)}
+        celebration={celebration}
+        currency={currency}
+        onClose={() => setCelebration(null)}
+      />
+
+      {/* Non-blocking Background Daily Budget Alert Toasts */}
+      <ToastNotifications toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

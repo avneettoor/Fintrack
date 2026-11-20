@@ -616,3 +616,95 @@ export function computeWalletBalances(
   }
   return map;
 }
+
+export const ESSENTIAL_CATEGORIES: ExpenseCategory[] = [
+  'accommodation',
+  'education',
+  'groceries',
+  'transportation',
+  'subscriptions',
+];
+
+export const ESSENTIAL_TAG_KEYWORDS = ['essential', 'necessary', 'rent', 'mess', 'bill', 'fees'];
+
+export type DailyThresholdTier = 'ok' | 'warning_90' | 'exceeded_100';
+
+export interface DailySpendAllowance {
+  essentialPaidThisMonth: number;
+  totalMonthExpenses: number;
+  remainingForMonth: number;
+  remainingBeforeToday: number;
+  spentToday: number;
+  remainingDays: number;
+  dailyLimit: number;
+  remainingToday: number;
+  dailyCapacityPct: number;
+  dailyThresholdTier: DailyThresholdTier;
+  isDailyLimitExceeded: boolean;
+}
+
+export function isNecessaryExpense(tx: Transaction): boolean {
+  if (tx.type !== 'expense') return false;
+  if (ESSENTIAL_CATEGORIES.includes(tx.category as ExpenseCategory)) return true;
+  return (tx.tags || []).some((t) => ESSENTIAL_TAG_KEYWORDS.includes(t.toLowerCase()));
+}
+
+export function computeDailySpendAllowance(
+  transactions: Transaction[],
+  monthKey: string,
+  effectiveMonthlyBudget: number
+): DailySpendAllowance {
+  const todayISO = getTodayISO();
+  const isCurrentMonth = monthKey === getCurrentMonthKey();
+  const monthExpenses = transactions.filter(
+    (t) => t.monthKey === monthKey && t.type === 'expense'
+  );
+  const essentialPaidThisMonth = monthExpenses
+    .filter(isNecessaryExpense)
+    .reduce((s, t) => s + t.amount, 0);
+  const totalMonthExpenses = monthExpenses.reduce((s, t) => s + t.amount, 0);
+  const spentToday = isCurrentMonth
+    ? monthExpenses.filter((t) => t.date === todayISO).reduce((s, t) => s + t.amount, 0)
+    : 0;
+
+  const remainingForMonth = effectiveMonthlyBudget - totalMonthExpenses;
+  const remainingBeforeToday = effectiveMonthlyBudget - (totalMonthExpenses - spentToday);
+  const remainingDays = getRemainingDaysInMonth(monthKey);
+  const dailyLimit =
+    effectiveMonthlyBudget > 0 && remainingBeforeToday > 0
+      ? Math.floor(remainingBeforeToday / remainingDays)
+      : 0;
+  const remainingToday = dailyLimit - spentToday;
+  const dailyCapacityPct =
+    dailyLimit > 0
+      ? Math.round((spentToday / dailyLimit) * 100)
+      : isCurrentMonth && effectiveMonthlyBudget > 0 && spentToday > 0
+        ? 100
+        : 0;
+
+  let dailyThresholdTier: DailyThresholdTier = 'ok';
+  if (isCurrentMonth && effectiveMonthlyBudget > 0 && spentToday > 0) {
+    if (spentToday >= dailyLimit || dailyCapacityPct >= 100) {
+      dailyThresholdTier = 'exceeded_100';
+    } else if (dailyCapacityPct >= 90) {
+      dailyThresholdTier = 'warning_90';
+    }
+  }
+
+  const isDailyLimitExceeded = dailyThresholdTier === 'exceeded_100';
+
+  return {
+    essentialPaidThisMonth,
+    totalMonthExpenses,
+    remainingForMonth,
+    remainingBeforeToday,
+    spentToday,
+    remainingDays,
+    dailyLimit,
+    remainingToday,
+    dailyCapacityPct,
+    dailyThresholdTier,
+    isDailyLimitExceeded,
+  };
+}
+
