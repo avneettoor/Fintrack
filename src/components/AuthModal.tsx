@@ -41,6 +41,7 @@ export function AuthModal({ isOpen, initialMode, onClose }: AuthModalProps) {
     signUpWithEmail,
     signInWithEmail,
     sendResetPasswordEmail,
+    enterDemoMode,
     signingIn,
     authError,
     clearAuthError,
@@ -306,6 +307,19 @@ export function AuthModal({ isOpen, initialMode, onClose }: AuthModalProps) {
               </button>
             </span>
           )}
+
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                enterDemoMode();
+              }}
+              className="text-xs font-semibold text-[#18A879] hover:underline"
+            >
+              Just exploring? Try the interactive demo without signing in →
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -30,6 +30,9 @@ interface AuthContextValue {
   loading: boolean;
   signingIn: boolean;
   authError: string | null;
+  isDemoMode: boolean;
+  enterDemoMode: () => void;
+  exitDemoMode: () => void;
   signInWithGoogle: () => Promise<void>;
   signUpWithEmail: (input: {
     fullName: string;
@@ -83,11 +86,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [signingIn, setSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [pendingMeta, setPendingMeta] = useState<PendingSignupMeta | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
   useEffect(() => {
+    if (isDemoMode) return;
     const isDark = profile?.theme === 'dark';
     document.documentElement.classList.toggle('dark', Boolean(isDark));
-  }, [profile?.theme]);
+  }, [profile?.theme, isDemoMode]);
 
   useEffect(() => {
     let unsubscribeProfile: (() => void) | null = null;
@@ -105,6 +110,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
+
+      setIsDemoMode(false);
 
       if (!firebaseUser.emailVerified) {
         setProfile(null);
@@ -145,11 +152,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [pendingMeta]);
 
+  const enterDemoMode = () => {
+    setAuthError(null);
+    document.documentElement.classList.remove('dark');
+    setIsDemoMode(true);
+  };
+
+  const exitDemoMode = () => {
+    document.documentElement.classList.remove('dark');
+    setIsDemoMode(false);
+  };
+
   const signInWithGoogle = async () => {
     setSigningIn(true);
     setAuthError(null);
     try {
       await signInWithPopup(auth, googleProvider);
+      setIsDemoMode(false);
     } catch (err) {
       setAuthError(mapFirebaseAuthError(err));
     } finally {
@@ -256,6 +275,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         signingIn,
         authError,
+        isDemoMode,
+        enterDemoMode,
+        exitDemoMode,
         signInWithGoogle,
         signUpWithEmail,
         signInWithEmail,

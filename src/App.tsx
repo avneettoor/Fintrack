@@ -105,7 +105,7 @@ function EmailVerificationGate() {
 }
 
 function AppRouter() {
-  const { user, profile, loading, logout } = useAuth();
+  const { user, profile, loading, isDemoMode, logout } = useAuth();
 
   if (loading) {
     return (
@@ -114,6 +114,10 @@ function AppRouter() {
         <p className="text-xs font-medium text-[#8490A5]">Loading your FinTrack Campus workspace...</p>
       </div>
     );
+  }
+
+  if (!user && isDemoMode) {
+    return <DashboardShell isDemo />;
   }
 
   if (!user) {

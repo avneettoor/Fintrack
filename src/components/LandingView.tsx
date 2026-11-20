@@ -6,6 +6,7 @@ import {
   ChevronDown,
   PieChart as PieChartIcon,
   PiggyBank,
+  Play,
   ShieldCheck,
   Target,
   Trophy,
@@ -45,7 +46,7 @@ const FAQS = [
 ];
 
 export function LandingView() {
-  const { signInWithGoogle, signingIn, authError, clearAuthError } = useAuth();
+  const { signInWithGoogle, signingIn, authError, clearAuthError, enterDemoMode } = useAuth();
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthModalMode>('signup');
   const [openFaq, setOpenFaq] = useState<number | null>(0);
@@ -85,13 +86,23 @@ export function LandingView() {
             </a>
           </nav>
 
-          <button
-            type="button"
-            onClick={() => openAuth('signup')}
-            className="px-4 py-2 text-sm font-semibold text-white bg-[#18A879] hover:bg-[#149369] rounded-xl transition-colors whitespace-nowrap shrink-0"
-          >
-            Get Started Free
-          </button>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={enterDemoMode}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-[#172B4D] bg-white border border-slate-200 hover:border-[#18A879] hover:text-[#18A879] rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>Try Demo</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openAuth('signup')}
+              className="px-4 py-2 text-sm font-semibold text-white bg-[#18A879] hover:bg-[#149369] rounded-xl transition-colors whitespace-nowrap shrink-0"
+            >
+              Get Started Free
+            </button>
+          </div>
         </div>
       </header>
 
@@ -132,7 +143,7 @@ export function LandingView() {
                 </div>
               )}
 
-              <div className="mt-8 flex flex-wrap items-center gap-4">
+              <div className="mt-8 flex flex-wrap items-center gap-3.5">
                 <button
                   type="button"
                   onClick={() => openAuth('signup')}
@@ -142,12 +153,14 @@ export function LandingView() {
                   <ArrowRight className="w-4 h-4" />
                 </button>
 
-                <a
-                  href="#why"
-                  className="inline-flex items-center px-5 py-3 text-sm font-semibold text-[#172B4D] bg-white border border-slate-200 hover:border-slate-300 rounded-xl transition-colors whitespace-nowrap shrink-0"
+                <button
+                  type="button"
+                  onClick={enterDemoMode}
+                  className="inline-flex items-center gap-2 px-5 py-3 text-sm font-semibold text-white bg-[#172B4D] hover:bg-[#10203a] rounded-xl transition-colors whitespace-nowrap shrink-0"
                 >
-                  Explore Features
-                </a>
+                  <Play className="w-3.5 h-3.5 text-[#18A879]" />
+                  <span>Try Interactive Demo</span>
+                </button>
 
                 <button
                   type="button"
@@ -242,6 +255,15 @@ export function LandingView() {
                     <p className="font-mono-nums text-sm font-bold text-[#4778E8] mt-0.5">30%</p>
                   </div>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={enterDemoMode}
+                  className="w-full py-2.5 px-4 rounded-xl bg-[#F7F9FC] hover:bg-emerald-50 border border-slate-200 hover:border-[#18A879]/40 text-xs font-semibold text-[#172B4D] hover:text-[#18A879] flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Play className="w-3.5 h-3.5 text-[#18A879]" />
+                  <span>Open Full Interactive Demo (No Login Required)</span>
+                </button>
               </div>
             </div>
           </div>
@@ -590,6 +612,9 @@ export function LandingView() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-6 text-xs text-slate-300">
+            <button type="button" onClick={enterDemoMode} className="text-[#18A879] font-semibold hover:underline">
+              Try Live Demo
+            </button>
             <button type="button" onClick={() => openAuth('login')} className="hover:text-white">
               Log In
             </button>

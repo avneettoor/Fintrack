@@ -9,11 +9,13 @@ import {
   Crown,
   HelpCircle,
   LayoutDashboard,
+  LogIn,
   LogOut,
   Menu,
   Moon,
   PiggyBank,
   Plus,
+  RotateCcw,
   Search,
   Settings,
   Sun,
@@ -24,8 +26,9 @@ import {
   Wallet as WalletIcon,
   X,
 } from 'lucide-react';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, Timestamp, where } from 'firebase/firestore';
 import { useAuth } from '../context/AuthContext';
+import { createInitialDemoDataset, DemoDataset } from '../lib/demoData';
 import { db } from '../lib/firebase';
 import {
   addTransaction,
@@ -64,13 +67,18 @@ import {
   formatMonthLabel,
   getCurrentMonthKey,
   getTodayISO,
+  NotificationPrefs,
+  PlanTier,
   SavingsGoal,
   shiftMonthKey,
+  ThemeMode,
   Transaction,
   TransactionType,
+  UserProfile,
   Wallet,
 } from '../types/finance';
 import { AnalyticsTab } from './AnalyticsTab';
+import { AuthModal } from './AuthModal';
 import { BrandLogo } from './BrandLogo';
 import { BudgetsTab } from './BudgetsTab';
 import { ChallengesTab } from './ChallengesTab';
@@ -123,15 +131,23 @@ const TAB_TITLES: Record<NavTab, string> = {
   help: 'Help & Support',
 };
 
-export function DashboardShell() {
-  const { user, profile, changePassword, sendResetPasswordEmail, deleteAccount, logout } =
-    useAuth();
+export function DashboardShell({ isDemo = false }: { isDemo?: boolean }) {
+  const {
+    user,
+    profile: liveProfile,
+    changePassword,
+    sendResetPasswordEmail,
+    deleteAccount,
+    logout,
+    exitDemoMode,
+  } = useAuth();
 
   const [activeTab, setActiveTab] = useState<NavTab>('overview');
   const [monthKey, setMonthKey] = useState<string>(getCurrentMonthKey());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
+  const [demoAuthOpen, setDemoAuthOpen] = useState(false);
 
   // External drilldown filters for TransactionsTab
   const [externalCategoryFilter, setExternalCategoryFilter] = useState<ExpenseCategory | 'all'>('all');
@@ -144,22 +160,36 @@ export function DashboardShell() {
   const [txInitialType, setTxInitialType] = useState<TransactionType>('expense');
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
 
-  // Firestore synced state
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [wallets, setWallets] = useState<Wallet[]>([]);
-  const [budgets, setBudgets] = useState<CategoryBudget[]>([]);
-  const [goals, setGoals] = useState<SavingsGoal[]>([]);
-  const [challenges, setChallenges] = useState<Challenge[]>([]);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
+  // Firestore synced state (for authenticated users)
+  const [liveTransactions, setLiveTransactions] = useState<Transaction[]>([]);
+  const [liveWallets, setLiveWallets] = useState<Wallet[]>([]);
+  const [liveBudgets, setLiveBudgets] = useState<CategoryBudget[]>([]);
+  const [liveGoals, setLiveGoals] = useState<SavingsGoal[]>([]);
+  const [liveChallenges, setLiveChallenges] = useState<Challenge[]>([]);
+  const [liveNotifications, setLiveNotifications] = useState<AppNotification[]>([]);
+  const [loadingData, setLoadingData] = useState(!isDemo);
   const [seedingDemo, setSeedingDemo] = useState(false);
+
+  // In-memory state (for pre-login interactive Demo Mode)
+  const [demoData, setDemoData] = useState<DemoDataset>(() =>
+    createInitialDemoDataset(getCurrentMonthKey())
+  );
 
   const dispatchedNotifKeys = useRef<Set<string>>(new Set());
   const notifContainerRef = useRef<HTMLDivElement>(null);
 
-  // Real-time Firestore listeners (all scoped with where('userId', '==', user.uid) to satisfy allow list rules)
+  // Sync dark mode class in demo mode
   useEffect(() => {
-    if (!user) return;
+    if (!isDemo) return;
+    document.documentElement.classList.toggle('dark', demoData.profile.theme === 'dark');
+  }, [isDemo, demoData.profile.theme]);
+
+  // Real-time Firestore listeners (strictly authenticated users only)
+  useEffect(() => {
+    if (isDemo || !user) {
+      setLoadingData(false);
+      return;
+    }
     setLoadingData(true);
 
     const txPath = `users/${user.uid}/transactions`;
@@ -180,7 +210,7 @@ export function DashboardShell() {
       (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Transaction));
         list.sort((a, b) => b.date.localeCompare(a.date));
-        setTransactions(list);
+        setLiveTransactions(list);
         txReady = true;
         checkReady();
       },
@@ -191,7 +221,7 @@ export function DashboardShell() {
       query(collection(db, 'users', user.uid, 'wallets'), where('userId', '==', user.uid)),
       (snap) => {
         const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Wallet));
-        setWallets(list);
+        setLiveWallets(list);
         walletsReady = true;
         checkReady();
       },
@@ -201,7 +231,7 @@ export function DashboardShell() {
     const unsubBudgets = onSnapshot(
       query(collection(db, 'users', user.uid, 'budgets'), where('userId', '==', user.uid)),
       (snap) => {
-        setBudgets(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CategoryBudget)));
+        setLiveBudgets(snap.docs.map((d) => ({ id: d.id, ...d.data() } as CategoryBudget)));
       },
       (err) => handleFirestoreError(err, OperationType.LIST, budgetsPath)
     );
@@ -209,7 +239,7 @@ export function DashboardShell() {
     const unsubGoals = onSnapshot(
       query(collection(db, 'users', user.uid, 'savingsGoals'), where('userId', '==', user.uid)),
       (snap) => {
-        setGoals(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SavingsGoal)));
+        setLiveGoals(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SavingsGoal)));
       },
       (err) => handleFirestoreError(err, OperationType.LIST, goalsPath)
     );
@@ -217,7 +247,7 @@ export function DashboardShell() {
     const unsubChallenges = onSnapshot(
       query(collection(db, 'users', user.uid, 'challenges'), where('userId', '==', user.uid)),
       (snap) => {
-        setChallenges(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Challenge)));
+        setLiveChallenges(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Challenge)));
       },
       (err) => handleFirestoreError(err, OperationType.LIST, challengesPath)
     );
@@ -231,7 +261,7 @@ export function DashboardShell() {
           const bt = b.createdAt?.toMillis?.() || 0;
           return bt - at;
         });
-        setNotifications(list);
+        setLiveNotifications(list);
       },
       (err) => handleFirestoreError(err, OperationType.LIST, notifsPath)
     );
@@ -244,7 +274,21 @@ export function DashboardShell() {
       unsubChallenges();
       unsubNotifs();
     };
-  }, [user]);
+  }, [isDemo, user]);
+
+  // Unified active dataset (demo vs authenticated Firestore)
+  const activeProfile: UserProfile | null = isDemo ? demoData.profile : liveProfile;
+  const transactions = isDemo ? demoData.transactions : liveTransactions;
+  const wallets = isDemo ? demoData.wallets : liveWallets;
+  const budgets = isDemo ? demoData.budgets : liveBudgets;
+  const goals = isDemo ? demoData.goals : liveGoals;
+  const challenges = isDemo ? demoData.challenges : liveChallenges;
+  const notifications = isDemo ? demoData.notifications : liveNotifications;
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications]
+  );
 
   // Close notification popover on outside click
   useEffect(() => {
@@ -257,9 +301,10 @@ export function DashboardShell() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // Automated smart notification alerts (deduplicated)
+  // Automated smart notification alerts (deduplicated, works in both Live & Demo mode)
   useEffect(() => {
-    if (!user || !profile || loadingData) return;
+    if (!activeProfile || loadingData) return;
+    if (!isDemo && !user) return;
 
     const existingKeys = new Set(notifications.map((n) => n.dedupeKey));
     const dispatchOnce = (
@@ -269,22 +314,47 @@ export function DashboardShell() {
       const safeKey = dedupeKey.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 80);
       if (existingKeys.has(safeKey) || dispatchedNotifKeys.current.has(safeKey)) return;
       dispatchedNotifKeys.current.add(safeKey);
-      void createNotificationIfNew(user.uid, { dedupeKey: safeKey, ...payload });
+
+      if (isDemo) {
+        const nowTs = Timestamp.now();
+        setDemoData((prev) => {
+          if (prev.notifications.some((n) => n.dedupeKey === safeKey)) return prev;
+          return {
+            ...prev,
+            notifications: [
+              {
+                id: safeKey,
+                userId: prev.profile.uid,
+                title: payload.title,
+                message: payload.message,
+                kind: payload.kind,
+                dedupeKey: safeKey,
+                read: false,
+                createdAt: nowTs,
+                updatedAt: nowTs,
+              },
+              ...prev.notifications,
+            ],
+          };
+        });
+      } else if (user) {
+        void createNotificationIfNew(user.uid, { dedupeKey: safeKey, ...payload });
+      }
     };
 
-    const currency = profile.currency || 'INR';
+    const currency = activeProfile.currency || 'INR';
     const currentMonthTxs = transactions.filter((t) => t.monthKey === monthKey);
     const currentMonthExpenses = currentMonthTxs.filter((t) => t.type === 'expense');
     const totalSpent = currentMonthExpenses.reduce((s, t) => s + t.amount, 0);
 
     // 1. Budget threshold notifications (70%, 90%, 100%)
-    if (profile.notificationPrefs?.budgetAlerts) {
-      if (profile.monthlyBudget > 0) {
-        const monthlyPct = (totalSpent / profile.monthlyBudget) * 100;
+    if (activeProfile.notificationPrefs?.budgetAlerts) {
+      if (activeProfile.monthlyBudget > 0) {
+        const monthlyPct = (totalSpent / activeProfile.monthlyBudget) * 100;
         if (monthlyPct >= 100) {
           dispatchOnce(`monthly_${monthKey}_100`, {
             title: 'Monthly Budget Exceeded',
-            message: `You have spent ${formatCurrency(totalSpent, currency)} against your ${formatCurrency(profile.monthlyBudget, currency)} cap for ${formatMonthLabel(monthKey)}.`,
+            message: `You have spent ${formatCurrency(totalSpent, currency)} against your ${formatCurrency(activeProfile.monthlyBudget, currency)} cap for ${formatMonthLabel(monthKey)}.`,
             kind: 'budget_exceeded',
           });
         } else if (monthlyPct >= 85) {
@@ -326,7 +396,7 @@ export function DashboardShell() {
     }
 
     // 2. Savings Goal milestones (50% & 100%)
-    if (profile.notificationPrefs?.goalMilestones) {
+    if (activeProfile.notificationPrefs?.goalMilestones) {
       for (const g of goals) {
         if (g.targetAmount <= 0) continue;
         const pct = (g.savedAmount / g.targetAmount) * 100;
@@ -347,7 +417,7 @@ export function DashboardShell() {
     }
 
     // 3. Challenge completion alerts
-    if (profile.notificationPrefs?.challengeAlerts) {
+    if (activeProfile.notificationPrefs?.challengeAlerts) {
       for (const c of challenges) {
         if (c.status === 'completed') {
           dispatchOnce(`challenge_${c.id}_done`, {
@@ -360,7 +430,7 @@ export function DashboardShell() {
     }
 
     // 4. 3-day logging inactivity reminder
-    if (profile.notificationPrefs?.inactivityReminders && transactions.length > 0) {
+    if (activeProfile.notificationPrefs?.inactivityReminders && transactions.length > 0) {
       const latestDate = transactions.reduce(
         (max, t) => (t.date > max ? t.date : max),
         transactions[0].date
@@ -377,15 +447,22 @@ export function DashboardShell() {
         });
       }
     }
-  }, [user, profile, loadingData, transactions, budgets, goals, challenges, monthKey, notifications]);
+  }, [
+    isDemo,
+    user,
+    activeProfile,
+    loadingData,
+    transactions,
+    budgets,
+    goals,
+    challenges,
+    monthKey,
+    notifications,
+  ]);
 
-  if (!user || !profile) return null;
+  if (!activeProfile) return null;
 
-  const currency = profile.currency || 'INR';
-  const unreadCount = useMemo(
-    () => notifications.filter((n) => !n.read).length,
-    [notifications]
-  );
+  const currency = activeProfile.currency || 'INR';
 
   const navigateTab = (tab: NavTab) => {
     setActiveTab(tab);
@@ -423,16 +500,448 @@ export function DashboardShell() {
     setActiveTab('transactions');
   };
 
+  const handleResetDemoData = () => {
+    dispatchedNotifKeys.current.clear();
+    setDemoData(createInitialDemoDataset(monthKey));
+  };
+
   const handleSeedDemo = async () => {
     setSeedingDemo(true);
     try {
-      await seedDemoCampusData(user.uid, monthKey);
+      if (isDemo) {
+        handleResetDemoData();
+      } else if (user) {
+        await seedDemoCampusData(user.uid, monthKey);
+      }
     } finally {
       setSeedingDemo(false);
     }
   };
 
-  const initials = (profile.displayName || 'CS')
+  const handleExitOrLogout = () => {
+    if (isDemo) {
+      exitDemoMode();
+    } else {
+      void logout();
+    }
+  };
+
+  // Unified CRUD adapters for Live (Firestore) vs Demo (Browser Memory)
+  const handleSaveTransaction = async (
+    data: Parameters<typeof addTransaction>[1]
+  ): Promise<void> => {
+    if (isDemo) {
+      const nowTs = Timestamp.now();
+      const monthKeyVal = data.date.slice(0, 7);
+      if (editingTx) {
+        setDemoData((prev) => ({
+          ...prev,
+          transactions: prev.transactions
+            .map((t) =>
+              t.id === editingTx.id
+                ? {
+                    ...t,
+                    ...data,
+                    category: data.type === 'transfer' ? 'wallet_transfer' : data.category,
+                    monthKey: monthKeyVal,
+                    tags: data.tags || [],
+                    updatedAt: nowTs,
+                  }
+                : t
+            )
+            .sort((a, b) => b.date.localeCompare(a.date)),
+        }));
+      } else {
+        const newTx: Transaction = {
+          id: `demo_tx_${Date.now()}`,
+          userId: demoData.profile.uid,
+          type: data.type,
+          amount: data.amount,
+          description: data.description,
+          category: data.type === 'transfer' ? 'wallet_transfer' : data.category,
+          date: data.date,
+          monthKey: monthKeyVal,
+          paymentMethod: data.paymentMethod,
+          walletId: data.walletId,
+          toWalletId: data.type === 'transfer' ? data.toWalletId : undefined,
+          notes: data.notes,
+          tags: data.tags || [],
+          receiptName: data.receiptName,
+          receiptDataUrl: data.receiptDataUrl,
+          createdAt: nowTs,
+          updatedAt: nowTs,
+        };
+        setDemoData((prev) => ({
+          ...prev,
+          transactions: [newTx, ...prev.transactions].sort((a, b) =>
+            b.date.localeCompare(a.date)
+          ),
+        }));
+      }
+      return;
+    }
+
+    if (!user) return;
+    if (editingTx) {
+      await updateTransaction(user.uid, editingTx.id, data);
+    } else {
+      await addTransaction(user.uid, data);
+    }
+  };
+
+  const handleDeleteTransaction = async (txId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        transactions: prev.transactions.filter((t) => t.id !== txId),
+      }));
+      return;
+    }
+    if (user) await deleteTransaction(user.uid, txId);
+  };
+
+  const handleUpdateProfile = async (
+    input: Parameters<typeof updateUserProfile>[1]
+  ): Promise<void> => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        profile: {
+          ...prev.profile,
+          ...input,
+          updatedAt: Timestamp.now(),
+        },
+      }));
+      return;
+    }
+    if (user) await updateUserProfile(user.uid, input);
+  };
+
+  const handleUpdateTheme = async (theme: ThemeMode) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        profile: { ...prev.profile, theme, updatedAt: Timestamp.now() },
+      }));
+      return;
+    }
+    if (user) await updateThemeMode(user.uid, theme);
+  };
+
+  const handleUpdateNotificationPrefs = async (prefs: NotificationPrefs) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        profile: { ...prev.profile, notificationPrefs: prefs, updatedAt: Timestamp.now() },
+      }));
+      return;
+    }
+    if (user) await updateNotificationPrefs(user.uid, prefs);
+  };
+
+  const handleToggleArticleRead = async (articleId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => {
+        const cur = prev.profile.readArticleIds || [];
+        const next = cur.includes(articleId)
+          ? cur.filter((id) => id !== articleId)
+          : [...cur, articleId];
+        return {
+          ...prev,
+          profile: { ...prev.profile, readArticleIds: next, updatedAt: Timestamp.now() },
+        };
+      });
+      return;
+    }
+    if (user) await toggleArticleRead(user.uid, activeProfile.readArticleIds || [], articleId);
+  };
+
+  const handleSelectPlan = async (
+    plan: PlanTier,
+    cycle: 'none' | 'monthly' | 'annual',
+    priceInr: number
+  ) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        profile: { ...prev.profile, planTier: plan, updatedAt: Timestamp.now() },
+      }));
+      return;
+    }
+    if (user) await selectSubscriptionPlan(user.uid, plan, cycle, priceInr);
+  };
+
+  const handleSaveCategoryBudget = async (category: ExpenseCategory, limitAmount: number) => {
+    if (isDemo) {
+      const id = `${monthKey}_${category}`;
+      const nowTs = Timestamp.now();
+      setDemoData((prev) => {
+        const exists = prev.budgets.some((b) => b.id === id);
+        if (exists) {
+          return {
+            ...prev,
+            budgets: prev.budgets.map((b) =>
+              b.id === id ? { ...b, limitAmount, updatedAt: nowTs } : b
+            ),
+          };
+        }
+        return {
+          ...prev,
+          budgets: [
+            ...prev.budgets,
+            {
+              id,
+              userId: prev.profile.uid,
+              monthKey,
+              category,
+              limitAmount,
+              createdAt: nowTs,
+              updatedAt: nowTs,
+            },
+          ],
+        };
+      });
+      return;
+    }
+    if (user) await upsertCategoryBudget(user.uid, monthKey, category, limitAmount);
+  };
+
+  const handleDeleteCategoryBudget = async (budgetId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        budgets: prev.budgets.filter((b) => b.id !== budgetId),
+      }));
+      return;
+    }
+    if (user) await deleteCategoryBudget(user.uid, budgetId);
+  };
+
+  const handleCreateWallet = async (input: Parameters<typeof createWallet>[1]) => {
+    if (isDemo) {
+      const nowTs = Timestamp.now();
+      setDemoData((prev) => ({
+        ...prev,
+        wallets: [
+          ...prev.wallets,
+          {
+            id: `demo_wallet_${Date.now()}`,
+            userId: prev.profile.uid,
+            ...input,
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          },
+        ],
+      }));
+      return;
+    }
+    if (user) await createWallet(user.uid, input);
+  };
+
+  const handleUpdateWallet = async (
+    walletId: string,
+    input: Parameters<typeof updateWallet>[2]
+  ) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        wallets: prev.wallets.map((w) =>
+          w.id === walletId ? { ...w, ...input, updatedAt: Timestamp.now() } : w
+        ),
+      }));
+      return;
+    }
+    if (user) await updateWallet(user.uid, walletId, input);
+  };
+
+  const handleDeleteWallet = async (walletId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        wallets: prev.wallets.filter((w) => w.id !== walletId),
+      }));
+      return;
+    }
+    if (user) await deleteWallet(user.uid, walletId);
+  };
+
+  const handleCreateGoal = async (input: Parameters<typeof createSavingsGoal>[1]) => {
+    if (isDemo) {
+      const nowTs = Timestamp.now();
+      const status = input.savedAmount >= input.targetAmount ? 'completed' : 'active';
+      setDemoData((prev) => ({
+        ...prev,
+        goals: [
+          ...prev.goals,
+          {
+            id: `demo_goal_${Date.now()}`,
+            userId: prev.profile.uid,
+            ...input,
+            status,
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          },
+        ],
+      }));
+      return;
+    }
+    if (user) await createSavingsGoal(user.uid, input);
+  };
+
+  const handleUpdateGoal = async (
+    goalId: string,
+    input: Parameters<typeof updateSavingsGoalDetails>[2]
+  ) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        goals: prev.goals.map((g) =>
+          g.id === goalId
+            ? {
+                ...g,
+                name: input.name,
+                targetAmount: input.targetAmount,
+                targetDate: input.targetDate,
+                category: input.category,
+                status: g.savedAmount >= input.targetAmount ? 'completed' : 'active',
+                updatedAt: Timestamp.now(),
+              }
+            : g
+        ),
+      }));
+      return;
+    }
+    if (user) await updateSavingsGoalDetails(user.uid, goalId, input);
+  };
+
+  const handleAdjustGoal = async (
+    goalId: string,
+    currentSaved: number,
+    targetAmount: number,
+    delta: number
+  ) => {
+    if (isDemo) {
+      const nextSaved = Math.max(0, currentSaved + delta);
+      const nextStatus = nextSaved >= targetAmount ? 'completed' : 'active';
+      setDemoData((prev) => ({
+        ...prev,
+        goals: prev.goals.map((g) =>
+          g.id === goalId
+            ? { ...g, savedAmount: nextSaved, status: nextStatus, updatedAt: Timestamp.now() }
+            : g
+        ),
+      }));
+      return;
+    }
+    if (user) await adjustGoalBalance(user.uid, goalId, currentSaved, targetAmount, delta);
+  };
+
+  const handleDeleteGoal = async (goalId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        goals: prev.goals.filter((g) => g.id !== goalId),
+      }));
+      return;
+    }
+    if (user) await deleteSavingsGoal(user.uid, goalId);
+  };
+
+  const handleStartChallenge = async (tpl: Parameters<typeof startChallenge>[1]) => {
+    if (isDemo) {
+      const nowTs = Timestamp.now();
+      const start = getTodayISO();
+      const endObj = new Date();
+      endObj.setDate(endObj.getDate() + tpl.targetDays);
+      setDemoData((prev) => ({
+        ...prev,
+        challenges: [
+          ...prev.challenges,
+          {
+            id: `demo_ch_${Date.now()}`,
+            userId: prev.profile.uid,
+            templateId: tpl.templateId,
+            title: tpl.title,
+            description: tpl.description,
+            targetDays: tpl.targetDays,
+            startDate: start,
+            endDate: endObj.toISOString().slice(0, 10),
+            completedDays: [],
+            pointsReward: tpl.pointsReward,
+            status: 'active',
+            createdAt: nowTs,
+            updatedAt: nowTs,
+          },
+        ],
+      }));
+      return;
+    }
+    if (user) await startChallenge(user.uid, tpl);
+  };
+
+  const handleToggleCheckIn = async (
+    challengeId: string,
+    completedDays: string[],
+    targetDays: number,
+    dateISO: string
+  ) => {
+    if (isDemo) {
+      const exists = completedDays.includes(dateISO);
+      const nextDays = exists
+        ? completedDays.filter((d) => d !== dateISO)
+        : [...completedDays, dateISO];
+      const nextStatus = nextDays.length >= targetDays ? 'completed' : 'active';
+      setDemoData((prev) => ({
+        ...prev,
+        challenges: prev.challenges.map((c) =>
+          c.id === challengeId
+            ? { ...c, completedDays: nextDays, status: nextStatus, updatedAt: Timestamp.now() }
+            : c
+        ),
+      }));
+      return;
+    }
+    if (user) {
+      await toggleChallengeCheckIn(user.uid, challengeId, completedDays, targetDays, dateISO);
+    }
+  };
+
+  const handleDeleteChallenge = async (challengeId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        challenges: prev.challenges.filter((c) => c.id !== challengeId),
+      }));
+      return;
+    }
+    if (user) await deleteChallenge(user.uid, challengeId);
+  };
+
+  const handleMarkNotificationRead = async (notifId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        notifications: prev.notifications.map((n) =>
+          n.id === notifId ? { ...n, read: true } : n
+        ),
+      }));
+      return;
+    }
+    if (user) await markNotificationRead(user.uid, notifId);
+  };
+
+  const handleDeleteNotification = async (notifId: string) => {
+    if (isDemo) {
+      setDemoData((prev) => ({
+        ...prev,
+        notifications: prev.notifications.filter((n) => n.id !== notifId),
+      }));
+      return;
+    }
+    if (user) await deleteNotification(user.uid, notifId);
+  };
+
+  const initials = (activeProfile.displayName || 'CS')
     .split(' ')
     .filter(Boolean)
     .slice(0, 2)
@@ -485,7 +994,7 @@ export function DashboardShell() {
             }`}
           >
             <UserIcon className="w-4 h-4 text-[#8490A5] shrink-0" />
-            <span className="truncate">{profile.displayName}</span>
+            <span className="truncate">{activeProfile.displayName}</span>
           </button>
 
           <button
@@ -502,7 +1011,7 @@ export function DashboardShell() {
               <span>Subscription Plan</span>
             </span>
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-emerald-50 text-[#18A879] dark:bg-emerald-950/60">
-              {profile.planTier === 'free' ? 'Free' : 'Plus'}
+              {activeProfile.planTier === 'free' ? 'Free' : 'Plus'}
             </span>
           </button>
 
@@ -521,11 +1030,11 @@ export function DashboardShell() {
 
           <button
             type="button"
-            onClick={() => void logout()}
+            onClick={handleExitOrLogout}
             className="w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-medium text-[#E56B6F] hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors whitespace-nowrap"
           >
             <LogOut className="w-4 h-4 shrink-0" />
-            <span>Logout</span>
+            <span>{isDemo ? 'Exit Demo' : 'Logout'}</span>
           </button>
         </div>
       </aside>
@@ -590,11 +1099,11 @@ export function DashboardShell() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void logout()}
+                  onClick={handleExitOrLogout}
                   className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-[#E56B6F] hover:bg-red-50 dark:hover:bg-red-950/30"
                 >
                   <LogOut className="w-4 h-4" />
-                  <span>Logout</span>
+                  <span>{isDemo ? 'Exit Demo' : 'Logout'}</span>
                 </button>
               </div>
             </nav>
@@ -622,7 +1131,7 @@ export function DashboardShell() {
               <h1 className="font-display text-base font-bold text-[#172B4D] dark:text-white truncate">
                 {TAB_TITLES[activeTab]}
               </h1>
-              <p className="text-[11px] text-[#8490A5] truncate">{profile.campusName}</p>
+              <p className="text-[11px] text-[#8490A5] truncate">{activeProfile.campusName}</p>
             </div>
           </div>
 
@@ -666,13 +1175,13 @@ export function DashboardShell() {
             <button
               type="button"
               onClick={() =>
-                void updateThemeMode(user.uid, profile.theme === 'dark' ? 'light' : 'dark')
+                void handleUpdateTheme(activeProfile.theme === 'dark' ? 'light' : 'dark')
               }
               className="hidden sm:inline-flex p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-[#8490A5] hover:text-[#172B4D] dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800"
               aria-label="Toggle color theme"
-              title={profile.theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              title={activeProfile.theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
-              {profile.theme === 'dark' ? (
+              {activeProfile.theme === 'dark' ? (
                 <Sun className="w-4 h-4 text-[#F4B544]" />
               ) : (
                 <Moon className="w-4 h-4" />
@@ -719,7 +1228,7 @@ export function DashboardShell() {
                         <div
                           key={n.id}
                           onClick={() => {
-                            if (!n.read) void markNotificationRead(user.uid, n.id);
+                            if (!n.read) void handleMarkNotificationRead(n.id);
                           }}
                           className={`px-4 py-3 flex items-start justify-between gap-2 cursor-pointer transition-colors ${
                             n.read
@@ -739,7 +1248,7 @@ export function DashboardShell() {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              void deleteNotification(user.uid, n.id);
+                              void handleDeleteNotification(n.id);
                             }}
                             className="p-1 text-[#8490A5] hover:text-[#E56B6F] shrink-0"
                             aria-label="Delete notification"
@@ -769,12 +1278,12 @@ export function DashboardShell() {
               type="button"
               onClick={() => navigateTab('settings')}
               className="w-9 h-9 rounded-xl bg-[#172B4D] text-white text-xs font-bold flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-700 shrink-0"
-              title={`${profile.displayName} — Open Settings`}
+              title={`${activeProfile.displayName} — Open Settings`}
             >
-              {profile.photoURL ? (
+              {activeProfile.photoURL ? (
                 <img
-                  src={profile.photoURL}
-                  alt={profile.displayName}
+                  src={activeProfile.photoURL}
+                  alt={activeProfile.displayName}
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
                 />
@@ -786,12 +1295,51 @@ export function DashboardShell() {
         </header>
 
         {/* Main Scrollable Content */}
-        <main className="flex-1 p-4 sm:p-6 pb-24 lg:pb-10 max-w-7xl w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 pb-24 lg:pb-10 max-w-7xl w-full mx-auto space-y-5">
+          {/* Interactive Demo Banner */}
+          {isDemo && (
+            <div className="bg-[#172B4D] text-white rounded-2xl px-4 sm:px-5 py-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-3 shadow-xs">
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-[#18A879]">
+                  Interactive Demo Mode · No Login Required
+                </p>
+                <p className="text-xs text-slate-200 mt-0.5">
+                  You are exploring sample Dehradun student finances. Add transactions, edit budgets, or test goals freely—changes stay in this browser session.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleResetDemoData}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-xs font-semibold text-white transition-colors whitespace-nowrap"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Reset Demo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDemoAuthOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#18A879] hover:bg-[#149369] text-xs font-semibold text-white transition-colors whitespace-nowrap"
+                >
+                  <LogIn className="w-3.5 h-3.5" />
+                  <span>Sign Up / Save Account</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={exitDemoMode}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:text-white whitespace-nowrap"
+                >
+                  Exit
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'overview' && (
             <OverviewTab
               monthKey={monthKey}
               currency={currency}
-              monthlyBudget={profile.monthlyBudget}
+              monthlyBudget={activeProfile.monthlyBudget}
               transactions={transactions}
               wallets={wallets}
               budgets={budgets}
@@ -837,7 +1385,7 @@ export function DashboardShell() {
                 setEditingTx(tx);
                 setTxModalOpen(true);
               }}
-              onDeleteTx={(txId) => deleteTransaction(user.uid, txId)}
+              onDeleteTx={handleDeleteTransaction}
             />
           )}
 
@@ -845,25 +1393,23 @@ export function DashboardShell() {
             <BudgetsTab
               monthKey={monthKey}
               currency={currency}
-              monthlyBudget={profile.monthlyBudget}
+              monthlyBudget={activeProfile.monthlyBudget}
               transactions={transactions}
               budgets={budgets}
               onSaveMonthlyBudget={(nextBudget) =>
-                updateUserProfile(user.uid, {
-                  displayName: profile.displayName,
-                  campusName: profile.campusName,
-                  ageGroup: profile.ageGroup,
-                  currency: profile.currency,
-                  monthlyAllowance: profile.monthlyAllowance,
+                handleUpdateProfile({
+                  displayName: activeProfile.displayName,
+                  campusName: activeProfile.campusName,
+                  ageGroup: activeProfile.ageGroup,
+                  currency: activeProfile.currency,
+                  monthlyAllowance: activeProfile.monthlyAllowance,
                   monthlyBudget: nextBudget,
-                  savingsTarget: profile.savingsTarget,
-                  photoURL: profile.photoURL,
+                  savingsTarget: activeProfile.savingsTarget,
+                  photoURL: activeProfile.photoURL,
                 })
               }
-              onSaveCategoryBudget={(category, limitAmount) =>
-                upsertCategoryBudget(user.uid, monthKey, category, limitAmount)
-              }
-              onDeleteCategoryBudget={(budgetId) => deleteCategoryBudget(user.uid, budgetId)}
+              onSaveCategoryBudget={handleSaveCategoryBudget}
+              onDeleteCategoryBudget={handleDeleteCategoryBudget}
             />
           )}
 
@@ -872,9 +1418,9 @@ export function DashboardShell() {
               currency={currency}
               wallets={wallets}
               transactions={transactions}
-              onCreateWallet={(input) => createWallet(user.uid, input)}
-              onUpdateWallet={(walletId, input) => updateWallet(user.uid, walletId, input)}
-              onDeleteWallet={(walletId) => deleteWallet(user.uid, walletId)}
+              onCreateWallet={handleCreateWallet}
+              onUpdateWallet={handleUpdateWallet}
+              onDeleteWallet={handleDeleteWallet}
               onOpenTransfer={() => openAddTxModal('transfer')}
               onViewWalletTransactions={handleViewWalletTransactions}
             />
@@ -884,12 +1430,10 @@ export function DashboardShell() {
             <SavingsGoalsTab
               currency={currency}
               goals={goals}
-              onCreateGoal={(input) => createSavingsGoal(user.uid, input)}
-              onUpdateGoal={(goalId, input) => updateSavingsGoalDetails(user.uid, goalId, input)}
-              onAdjustGoal={(goalId, currentSaved, targetAmount, delta) =>
-                adjustGoalBalance(user.uid, goalId, currentSaved, targetAmount, delta)
-              }
-              onDeleteGoal={(goalId) => deleteSavingsGoal(user.uid, goalId)}
+              onCreateGoal={handleCreateGoal}
+              onUpdateGoal={handleUpdateGoal}
+              onAdjustGoal={handleAdjustGoal}
+              onDeleteGoal={handleDeleteGoal}
             />
           )}
 
@@ -903,50 +1447,54 @@ export function DashboardShell() {
               transactions={transactions}
               budgets={budgets}
               goals={goals}
-              onStartChallenge={(tpl) => startChallenge(user.uid, tpl)}
-              onToggleCheckIn={async (challengeId, completedDays, targetDays, dateISO) => {
-                await toggleChallengeCheckIn(
-                  user.uid,
-                  challengeId,
-                  completedDays,
-                  targetDays,
-                  dateISO
-                );
-              }}
-              onDeleteChallenge={(challengeId) => deleteChallenge(user.uid, challengeId)}
+              onStartChallenge={handleStartChallenge}
+              onToggleCheckIn={handleToggleCheckIn}
+              onDeleteChallenge={handleDeleteChallenge}
             />
           )}
 
           {activeTab === 'learn' && (
             <LearnFinanceTab
-              readArticleIds={profile.readArticleIds || []}
-              onToggleArticleRead={(articleId) =>
-                toggleArticleRead(user.uid, profile.readArticleIds || [], articleId)
-              }
+              readArticleIds={activeProfile.readArticleIds || []}
+              onToggleArticleRead={handleToggleArticleRead}
             />
           )}
 
           {activeTab === 'settings' && (
             <SettingsTab
-              profile={profile}
+              profile={activeProfile}
               transactions={transactions}
               seedingDemo={seedingDemo}
-              onUpdateProfile={(input) => updateUserProfile(user.uid, input)}
-              onUpdateTheme={(theme) => updateThemeMode(user.uid, theme)}
-              onUpdateNotificationPrefs={(prefs) => updateNotificationPrefs(user.uid, prefs)}
-              onChangePassword={changePassword}
-              onSendPasswordReset={sendResetPasswordEmail}
+              onUpdateProfile={handleUpdateProfile}
+              onUpdateTheme={handleUpdateTheme}
+              onUpdateNotificationPrefs={handleUpdateNotificationPrefs}
+              onChangePassword={async (pw) => {
+                if (isDemo) {
+                  throw new Error(
+                    'Password management requires a signed-in account. Click "Sign Up / Save Account" above.'
+                  );
+                }
+                await changePassword(pw);
+              }}
+              onSendPasswordReset={async (email) => {
+                if (isDemo) return false;
+                return sendResetPasswordEmail(email);
+              }}
               onSeedDemo={handleSeedDemo}
-              onDeleteAccount={deleteAccount}
+              onDeleteAccount={async () => {
+                if (isDemo) {
+                  exitDemoMode();
+                  return;
+                }
+                await deleteAccount();
+              }}
             />
           )}
 
           {activeTab === 'subscription' && (
             <SubscriptionTab
-              currentPlan={profile.planTier || 'free'}
-              onSelectPlan={(plan, cycle, priceInr) =>
-                selectSubscriptionPlan(user.uid, plan, cycle, priceInr)
-              }
+              currentPlan={activeProfile.planTier || 'free'}
+              onSelectPlan={handleSelectPlan}
             />
           )}
 
@@ -1015,14 +1563,17 @@ export function DashboardShell() {
           setTxModalOpen(false);
           setEditingTx(null);
         }}
-        onSave={async (data) => {
-          if (editingTx) {
-            await updateTransaction(user.uid, editingTx.id, data);
-          } else {
-            await addTransaction(user.uid, data);
-          }
-        }}
+        onSave={handleSaveTransaction}
       />
+
+      {/* Sign Up Modal available straight from Demo Mode */}
+      {isDemo && (
+        <AuthModal
+          isOpen={demoAuthOpen}
+          initialMode="signup"
+          onClose={() => setDemoAuthOpen(false)}
+        />
+      )}
     </div>
   );
 }
